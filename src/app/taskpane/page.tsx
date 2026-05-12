@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_PRESET } from "@/lib/constants/defaultPreset";
 import { PRESET_PACK_NOTICE } from "@/lib/constants/campusPresetPack";
 import {
@@ -43,6 +43,10 @@ import {
   summarizeDiagnostics,
   type OfficeActionDiagnostics,
 } from "@/lib/office/diagnostics";
+import {
+  COMMON_FONT_CANDIDATES,
+  detectInstalledFonts,
+} from "@/lib/utils/fontDetection";
 import type {
   Alignment,
   ApplyTarget,
@@ -91,6 +95,13 @@ function createPresetId(name: string): string {
   return `${slug}-${Date.now()}`;
 }
 
+function getPresetFontNames(preset: SkripsiPresetV1): string[] {
+  const names = STYLE_OPTIONS.map((item) => preset.styles[item.value].text.fontName.trim()).filter(
+    (value) => value.length > 0
+  );
+  return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+}
+
 function extractErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -136,6 +147,8 @@ export default function TaskpanePage() {
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
   const [diagnosticMode, setDiagnosticMode] = useState<boolean>(false);
   const [lastDiagnostics, setLastDiagnostics] = useState<OfficeActionDiagnostics | null>(null);
+  const [availableFonts, setAvailableFonts] = useState<string[]>([]);
+  const [fontScanBusy, setFontScanBusy] = useState<boolean>(false);
 
   useEffect(() => {
     const local = loadLocalPresets();
@@ -173,6 +186,25 @@ export default function TaskpanePage() {
   const captionPreset =
     captionLabel === "Figure" ? workingPreset.captions.figure : workingPreset.captions.table;
   const editingStyle = workingPreset.styles[styleEditorKey];
+
+  const refreshDetectedFonts = useCallback(async (sourcePreset: SkripsiPresetV1): Promise<void> => {
+    setFontScanBusy(true);
+    try {
+      const detected = await detectInstalledFonts(COMMON_FONT_CANDIDATES);
+      const merged = Array.from(
+        new Set([...detected, ...getPresetFontNames(sourcePreset)])
+      ).sort((a, b) => a.localeCompare(b));
+      setAvailableFonts(merged);
+    } catch {
+      setAvailableFonts(getPresetFontNames(sourcePreset));
+    } finally {
+      setFontScanBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshDetectedFonts(selectedPreset);
+  }, [selectedPreset, refreshDetectedFonts]);
 
   async function runAction(actionName: string, action: () => Promise<void>): Promise<void> {
     setBusyAction(actionName);
@@ -551,19 +583,36 @@ export default function TaskpanePage() {
               </div>
               <div className="footer-note">
                 Word built-in mapping: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong>
+                <br />
+                Detected fonts: <strong>{availableFonts.length}</strong>
+                <br />
+                <button
+                  onClick={() => {
+                    void refreshDetectedFonts(workingPreset);
+                  }}
+                  disabled={fontScanBusy || busyAction.length > 0}
+                >
+                  {fontScanBusy ? "Scanning Fonts..." : "Rescan Installed Fonts"}
+                </button>
               </div>
             </div>
 
             <div className="row inline">
               <div>
                 <label htmlFor="font-name">Font</label>
-                <input
+                <select
                   id="font-name"
                   value={editingStyle.text.fontName}
                   onChange={(event) =>
                     updateStyleText(styleEditorKey, "fontName", event.target.value)
                   }
-                />
+                >
+                  {availableFonts.map((fontName) => (
+                    <option key={fontName} value={fontName}>
+                      {fontName}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label htmlFor="font-size">Font size (pt)</label>
