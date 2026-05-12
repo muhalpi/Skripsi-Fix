@@ -1,4 +1,4 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
 
@@ -14,10 +14,45 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
-        <Script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" strategy="beforeInteractive" />
-        {children}
-      </body>
+      <head>
+        <Script id="history-cache" strategy="beforeInteractive">
+          {`
+            window._historyCache = {
+              replaceState: window.history && window.history.replaceState,
+              pushState: window.history && window.history.pushState
+            };
+          `}
+        </Script>
+        <Script id="office-js" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" strategy="beforeInteractive" />
+        <Script id="history-restore" strategy="beforeInteractive">
+          {`
+            (function keepHistoryApisAlive() {
+              function restore() {
+                if (!window._historyCache || !window.history) {
+                  return;
+                }
+                if (window._historyCache.replaceState) {
+                  window.history.replaceState = window._historyCache.replaceState;
+                }
+                if (window._historyCache.pushState) {
+                  window.history.pushState = window._historyCache.pushState;
+                }
+              }
+
+              restore();
+              var attempts = 0;
+              var timer = window.setInterval(function () {
+                attempts += 1;
+                restore();
+                if (attempts >= 400) {
+                  window.clearInterval(timer);
+                }
+              }, 25);
+            })();
+          `}
+        </Script>
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

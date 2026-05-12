@@ -30,11 +30,13 @@ Word task-pane add-in for skripsi formatting presets, caption workflows, TOC/lis
 npm install
 ```
 
-2. Start dev server.
+2. Start HTTPS dev server (required by Office add-in runtime).
 
 ```bash
 npm run dev
 ```
+
+If Word still rejects startup because of certificate trust, open `https://localhost:3000/taskpane` in Edge/Chrome and accept/trust the local certificate first.
 
 3. Keep manifest on localhost for dev (`https://localhost:3000`).
 

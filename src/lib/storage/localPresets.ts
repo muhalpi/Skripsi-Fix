@@ -8,18 +8,30 @@ import { validatePreset } from "@/lib/validation/presetValidation";
 const STORAGE_KEY = "skripsi-helper.local-presets.v1";
 
 function getStorageKey(): string {
-  const partitionKey =
-    typeof Office !== "undefined" && "partitionKey" in Office.context
-      ? (Office.context as Office.Context & { partitionKey?: string }).partitionKey
-      : undefined;
-  return partitionKey ? `${partitionKey}:${STORAGE_KEY}` : STORAGE_KEY;
+  try {
+    if (typeof Office === "undefined") {
+      return STORAGE_KEY;
+    }
+
+    const partitionKey = (Office.context as (Office.Context & { partitionKey?: string }) | undefined)
+      ?.partitionKey;
+
+    return partitionKey ? `${partitionKey}:${STORAGE_KEY}` : STORAGE_KEY;
+  } catch {
+    return STORAGE_KEY;
+  }
 }
 
 function getStorage(): Storage | null {
   if (typeof window === "undefined") {
     return null;
   }
-  return window.localStorage;
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 export function getBuiltInPresets(): SkripsiPresetV1[] {
@@ -36,12 +48,12 @@ export function loadLocalPresets(): SkripsiPresetV1[] {
     return [...DEFAULT_PRESET_LIBRARY];
   }
 
-  const raw = storage.getItem(getStorageKey());
-  if (!raw) {
-    return [...DEFAULT_PRESET_LIBRARY];
-  }
-
   try {
+    const raw = storage.getItem(getStorageKey());
+    if (!raw) {
+      return [...DEFAULT_PRESET_LIBRARY];
+    }
+
     const parsed = JSON.parse(raw) as unknown[];
     const safe = parsed.map((item) => validatePreset(item));
 
@@ -63,7 +75,12 @@ export function saveLocalPresets(presets: SkripsiPresetV1[]): void {
   if (!storage) {
     return;
   }
-  storage.setItem(getStorageKey(), JSON.stringify(presets));
+
+  try {
+    storage.setItem(getStorageKey(), JSON.stringify(presets));
+  } catch {
+    // Ignore storage write failures (quota/partition/privacy mode).
+  }
 }
 
 export function upsertLocalPreset(preset: SkripsiPresetV1): SkripsiPresetV1[] {
