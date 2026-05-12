@@ -1,6 +1,6 @@
 # Skripsi Helper Word Add-in (No Auth, No DB)
 
-Word task-pane add-in for skripsi formatting presets, caption workflows, TOC/list updates, and document audit/fix.
+Word task-pane add-in for skripsi formatting presets, caption workflows, TOC/list updates, and document audit.
 
 ## Features
 
@@ -8,12 +8,14 @@ Word task-pane add-in for skripsi formatting presets, caption workflows, TOC/lis
 - Local preset library (`localStorage` partition-aware)
 - Reset local library back to built-in campus pack
 - Per-document preset save/load (`Office.context.document.settings`)
-- Apply style preset to selection or whole document
-- Chapter-aware autofix (auto-classifies heading/body/caption/quote)
-- Heading 1/2/3 enforcement
+- Full style editor for all preset style keys (body, headings, quote, captions)
+- Apply style preset to selection or whole document (with Word built-in style mapping)
+- Chapter-aware autofix (auto-classifies heading/body/caption/quote and applies built-in styles)
+- Sync preset styles into Word built-in styles (Normal, Heading 1/2/3, Quote, Caption)
+- Manual Heading 1/2/3 enforcement
 - Figure/Table caption insertion
 - TOC + list of figures + list of tables field helpers
-- Document audit and bulk fix for body paragraph mismatches
+- Document audit report for body paragraph mismatches
 - JSON export/import for presets
 
 ## Stack

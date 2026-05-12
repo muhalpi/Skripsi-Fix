@@ -1,5 +1,6 @@
 import type { CaptionLabel, StylePreset } from "@/types/preset";
 import { cmToPoints } from "@/lib/utils/units";
+import { applyBuiltInStyleForPreset } from "@/lib/office/styleRegistry";
 
 function toSentenceCase(value: string): string {
   if (!value.trim()) {
@@ -36,6 +37,11 @@ export async function insertCaption(options: {
     captionRange.insertText(`${options.label} `, Word.InsertLocation.start);
     captionRange.insertField(Word.InsertLocation.end, "Seq", `${options.label} \\* ARABIC`, false);
     captionRange.insertText(`${options.separator} ${normalizedTitle}`, Word.InsertLocation.end);
+
+    applyBuiltInStyleForPreset(
+      captionParagraph,
+      options.label === "Figure" ? "captionFigure" : "captionTable"
+    );
 
     captionParagraph.font.name = options.captionStyle.text.fontName;
     captionParagraph.font.size = options.captionStyle.text.fontSizePt;

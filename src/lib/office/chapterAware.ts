@@ -1,6 +1,5 @@
-﻿import type { ApplyTarget, PresetStyleKey, SkripsiPresetV1 } from "@/types/preset";
+import type { ApplyTarget, PresetStyleKey, SkripsiPresetV1 } from "@/types/preset";
 import { applyStyleToParagraph } from "@/lib/office/formatter";
-import { setHeadingStyle } from "@/lib/office/headings";
 
 const FIGURE_CAPTION_PATTERN = /^(figure|gambar)\s+([0-9]+|[ivxlcdm]+)([.:-]|\s)/i;
 const TABLE_CAPTION_PATTERN = /^(table|tabel)\s+([0-9]+|[ivxlcdm]+)([.:-]|\s)/i;
@@ -39,13 +38,10 @@ function mapBuiltInStyle(styleBuiltIn: string): PresetStyleKey | null {
   if (styleBuiltIn === "Quote" || styleBuiltIn === "IntenseQuote") {
     return "quote";
   }
-  if (styleBuiltIn === "Caption") {
-    return "captionFigure";
-  }
   return null;
 }
 
-function classifyParagraph(text: string, styleBuiltIn: string): PresetStyleKey {
+export function classifyParagraphStyleKey(text: string, styleBuiltIn: string): PresetStyleKey {
   const normalized = normalizeText(text);
   if (!normalized) {
     return "body";
@@ -80,19 +76,6 @@ function classifyParagraph(text: string, styleBuiltIn: string): PresetStyleKey {
   return "body";
 }
 
-function headingLevelFromStyleKey(styleKey: PresetStyleKey): 1 | 2 | 3 | null {
-  if (styleKey === "heading1") {
-    return 1;
-  }
-  if (styleKey === "heading2") {
-    return 2;
-  }
-  if (styleKey === "heading3") {
-    return 3;
-  }
-  return null;
-}
-
 export type ChapterAwareSummary = {
   total: number;
   body: number;
@@ -106,8 +89,7 @@ export type ChapterAwareSummary = {
 
 export async function applyChapterAwareFormatting(
   preset: SkripsiPresetV1,
-  target: ApplyTarget,
-  enforceHeadingBuiltInStyle = true
+  target: ApplyTarget
 ): Promise<ChapterAwareSummary> {
   return Word.run(async (context) => {
     const paragraphs =
@@ -128,14 +110,8 @@ export async function applyChapterAwareFormatting(
     };
 
     for (const paragraph of paragraphs.items) {
-      const styleKey = classifyParagraph(paragraph.text, String(paragraph.styleBuiltIn || ""));
-      applyStyleToParagraph(paragraph, preset.styles[styleKey]);
-
-      const headingLevel = headingLevelFromStyleKey(styleKey);
-      if (headingLevel && enforceHeadingBuiltInStyle) {
-        setHeadingStyle(paragraph, headingLevel);
-      }
-
+      const styleKey = classifyParagraphStyleKey(paragraph.text, String(paragraph.styleBuiltIn || ""));
+      applyStyleToParagraph(paragraph, preset.styles[styleKey], styleKey);
       summary[styleKey] += 1;
     }
 

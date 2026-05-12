@@ -1,8 +1,14 @@
-﻿import type { AuditMismatch, AuditReport, StylePreset } from "@/types/preset";
+import type { AuditMismatch, AuditReport, StylePreset } from "@/types/preset";
 import { almostEqual, cmToPoints } from "@/lib/utils/units";
+import { classifyParagraphStyleKey } from "@/lib/office/chapterAware";
+import { buildTextPreview } from "@/lib/office/diagnostics";
 
 function getMismatchReasons(paragraph: Word.Paragraph, expected: StylePreset): string[] {
   const reasons: string[] = [];
+
+  if (String(paragraph.styleBuiltIn || "") !== "Normal") {
+    reasons.push("built-in style");
+  }
 
   if (paragraph.font.name !== expected.text.fontName) {
     reasons.push("font name");
@@ -35,86 +41,38 @@ function getMismatchReasons(paragraph: Word.Paragraph, expected: StylePreset): s
   return reasons;
 }
 
-function buildPreview(text: string): string {
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (!compact) {
-    return "(empty paragraph)";
-  }
-  return compact.length > 60 ? `${compact.slice(0, 60)}...` : compact;
-}
-
 export async function auditDocumentBody(expected: StylePreset): Promise<AuditReport> {
   return Word.run(async (context) => {
     const paragraphs = context.document.body.paragraphs;
     paragraphs.load(
-      "items/text,items/alignment,items/lineSpacing,items/spaceBefore,items/spaceAfter,items/firstLineIndent,items/leftIndent,items/rightIndent,items/font/name,items/font/size"
+      "items/text,items/styleBuiltIn,items/alignment,items/lineSpacing,items/spaceBefore,items/spaceAfter,items/firstLineIndent,items/leftIndent,items/rightIndent,items/font/name,items/font/size"
     );
 
     await context.sync();
 
     const mismatches: AuditMismatch[] = [];
+    let auditedBodyParagraphs = 0;
 
     paragraphs.items.forEach((paragraph, index) => {
+      const styleKey = classifyParagraphStyleKey(paragraph.text, String(paragraph.styleBuiltIn || ""));
+      if (styleKey !== "body") {
+        return;
+      }
+
+      auditedBodyParagraphs += 1;
       const reasons = getMismatchReasons(paragraph, expected);
       if (reasons.length > 0) {
         mismatches.push({
           index: index + 1,
-          textPreview: buildPreview(paragraph.text),
+          textPreview: buildTextPreview(paragraph.text),
           reasons,
         });
       }
     });
 
     return {
-      totalParagraphs: paragraphs.items.length,
+      totalParagraphs: auditedBodyParagraphs,
       mismatches,
     };
-  });
-}
-
-export async function fixDocumentBodyMismatches(expected: StylePreset): Promise<number> {
-  return Word.run(async (context) => {
-    const paragraphs = context.document.body.paragraphs;
-    paragraphs.load(
-      "items/text,items/alignment,items/lineSpacing,items/spaceBefore,items/spaceAfter,items/firstLineIndent,items/leftIndent,items/rightIndent,items/font/name,items/font/size"
-    );
-
-    await context.sync();
-
-    let fixed = 0;
-
-    for (const paragraph of paragraphs.items) {
-      const reasons = getMismatchReasons(paragraph, expected);
-      if (reasons.length === 0) {
-        continue;
-      }
-
-      paragraph.font.name = expected.text.fontName;
-      paragraph.font.size = expected.text.fontSizePt;
-      paragraph.font.bold = expected.text.bold;
-      paragraph.font.italic = expected.text.italic;
-      paragraph.font.underline = expected.text.underline;
-
-      try {
-        paragraph.font.allCaps = expected.text.allCaps;
-      } catch {
-        // no-op
-      }
-
-      paragraph.alignment = expected.paragraph.alignment;
-      paragraph.lineSpacing = expected.paragraph.lineSpacingPt;
-      paragraph.spaceBefore = expected.paragraph.spaceBeforePt;
-      paragraph.spaceAfter = expected.paragraph.spaceAfterPt;
-      paragraph.firstLineIndent = cmToPoints(expected.paragraph.firstLineIndentCm);
-      paragraph.leftIndent = cmToPoints(expected.paragraph.leftIndentCm);
-      paragraph.rightIndent = cmToPoints(expected.paragraph.rightIndentCm);
-      fixed += 1;
-    }
-
-    if (fixed > 0) {
-      await context.sync();
-    }
-
-    return fixed;
   });
 }

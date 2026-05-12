@@ -18,9 +18,13 @@ import {
   saveDocumentPreset,
 } from "@/lib/storage/documentSettings";
 import { waitForOfficeReady, isRequirementSetSupported } from "@/lib/office/runtime";
-import { applyStylePresetToTarget, normalizeDocumentWithStyle } from "@/lib/office/formatter";
+import { applyStylePresetToTarget } from "@/lib/office/formatter";
 import { applyHeadingStyle } from "@/lib/office/headings";
 import { applyChapterAwareFormatting } from "@/lib/office/chapterAware";
+import {
+  getBuiltInStyleLabel,
+  syncPresetToWordBuiltInStyles,
+} from "@/lib/office/styleRegistry";
 import { insertCaption } from "@/lib/office/captions";
 import {
   insertListOfFiguresAtSelection,
@@ -31,7 +35,14 @@ import {
   updateListOfTablesFields,
   updateTocFields,
 } from "@/lib/office/toc";
-import { auditDocumentBody, fixDocumentBodyMismatches } from "@/lib/office/audit";
+import { auditDocumentBody } from "@/lib/office/audit";
+import {
+  getDiagnosticModeEnabled,
+  getLastOfficeDiagnostics,
+  setDiagnosticModeEnabled as persistDiagnosticMode,
+  summarizeDiagnostics,
+  type OfficeActionDiagnostics,
+} from "@/lib/office/diagnostics";
 import type {
   Alignment,
   ApplyTarget,
@@ -115,19 +126,23 @@ export default function TaskpanePage() {
   const [draftPreset, setDraftPreset] = useState<SkripsiPresetV1 | null>(null);
 
   const [applyTarget, setApplyTarget] = useState<ApplyTarget>("selection");
-  const [enforceHeadingBuiltInStyle, setEnforceHeadingBuiltInStyle] = useState<boolean>(true);
   const [styleKey, setStyleKey] = useState<PresetStyleKey>("body");
+  const [styleEditorKey, setStyleEditorKey] = useState<PresetStyleKey>("body");
   const [headingLevel, setHeadingLevel] = useState<1 | 2 | 3>(1);
   const [captionLabel, setCaptionLabel] = useState<CaptionLabel>("Figure");
   const [captionTitle, setCaptionTitle] = useState<string>("");
 
   const [importText, setImportText] = useState<string>("");
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
+  const [diagnosticMode, setDiagnosticMode] = useState<boolean>(false);
+  const [lastDiagnostics, setLastDiagnostics] = useState<OfficeActionDiagnostics | null>(null);
 
   useEffect(() => {
     const local = loadLocalPresets();
     setPresets(local);
     setSelectedPresetId(local[0]?.id ?? DEFAULT_PRESET.id);
+    setDiagnosticMode(getDiagnosticModeEnabled());
+    setLastDiagnostics(getLastOfficeDiagnostics());
 
     waitForOfficeReady()
       .then((status) => {
@@ -157,11 +172,37 @@ export default function TaskpanePage() {
 
   const captionPreset =
     captionLabel === "Figure" ? workingPreset.captions.figure : workingPreset.captions.table;
+  const editingStyle = workingPreset.styles[styleEditorKey];
 
   async function runAction(actionName: string, action: () => Promise<void>): Promise<void> {
     setBusyAction(actionName);
+    const previousDiagnosticTimestamp = getLastOfficeDiagnostics()?.timestamp;
     try {
       await action();
+      const diagnostics = getLastOfficeDiagnostics();
+      setLastDiagnostics(diagnostics);
+
+      const hasNewDiagnostics =
+        Boolean(diagnostics) && diagnostics?.timestamp !== previousDiagnosticTimestamp;
+
+      if (diagnosticMode && hasNewDiagnostics && diagnostics?.failed) {
+        setNotice({
+          type: "error",
+          text:
+            `${actionName} completed with ${diagnostics.failed} failed paragraph(s). ` +
+            summarizeDiagnostics(diagnostics),
+        });
+        return;
+      }
+
+      if (diagnosticMode && hasNewDiagnostics && diagnostics?.fallbackUsed) {
+        setNotice({
+          type: "info",
+          text: `${actionName} completed using fallback path. ${summarizeDiagnostics(diagnostics)}`,
+        });
+        return;
+      }
+
       setNotice({ type: "ok", text: `${actionName} completed.` });
     } catch (error: unknown) {
       setNotice({ type: "error", text: `${actionName} failed: ${extractErrorMessage(error)}` });
@@ -178,24 +219,26 @@ export default function TaskpanePage() {
     setNotice({ type: "ok", text: successMessage });
   }
 
-  function updateBodyText<K extends keyof SkripsiPresetV1["styles"]["body"]["text"]>(
+  function updateStyleText<K extends keyof SkripsiPresetV1["styles"]["body"]["text"]>(
+    styleName: PresetStyleKey,
     key: K,
     value: SkripsiPresetV1["styles"]["body"]["text"][K]
   ): void {
     setDraftPreset((previous) => {
       const source = previous ?? clonePreset(selectedPreset);
-      source.styles.body.text[key] = value;
+      source.styles[styleName].text[key] = value;
       return { ...source };
     });
   }
 
-  function updateBodyParagraph<K extends keyof SkripsiPresetV1["styles"]["body"]["paragraph"]>(
+  function updateStyleParagraph<K extends keyof SkripsiPresetV1["styles"]["body"]["paragraph"]>(
+    styleName: PresetStyleKey,
     key: K,
     value: SkripsiPresetV1["styles"]["body"]["paragraph"][K]
   ): void {
     setDraftPreset((previous) => {
       const source = previous ?? clonePreset(selectedPreset);
-      source.styles.body.paragraph[key] = value;
+      source.styles[styleName].paragraph[key] = value;
       return { ...source };
     });
   }
@@ -264,19 +307,90 @@ export default function TaskpanePage() {
     reader.readAsText(file);
   }
 
+  function toggleDiagnosticMode(enabled: boolean): void {
+    setDiagnosticMode(enabled);
+    persistDiagnosticMode(enabled);
+    setLastDiagnostics(getLastOfficeDiagnostics());
+    setNotice({
+      type: "info",
+      text: enabled
+        ? "Diagnostic mode enabled. Failed paragraph details will be captured."
+        : "Diagnostic mode disabled.",
+    });
+  }
+
   return (
     <main>
       <div className="shell">
         <section className="hero">
           <h1>Skripsi Helper for Word</h1>
           <p>
-            Apply text presets, control captions, update TOC and lists, then audit and fix formatting mismatches.
+            Apply text presets, control captions, update TOC and lists, then audit formatting mismatches.
           </p>
         </section>
 
         <section className="status info" style={{ marginTop: "12px" }}>
           Host: <strong>{runtime.hostName}</strong> | Word Ready: <strong>{String(isWordReady)}</strong> | WordApi 1.5:
           <strong> {String(isWordApi15Supported)}</strong>
+        </section>
+
+        <section className="card" style={{ marginTop: "12px" }}>
+          <h2>Diagnostic Mode</h2>
+          <p>Capture paragraph-level failures for apply and heading actions.</p>
+          <div className="row">
+            <label>
+              <input
+                type="checkbox"
+                checked={diagnosticMode}
+                onChange={(event) => toggleDiagnosticMode(event.target.checked)}
+                style={{ width: "auto", marginRight: 8 }}
+              />
+              Enable diagnostic mode
+            </label>
+          </div>
+          <div className="row inline">
+            <button
+              onClick={() => {
+                const diagnostics = getLastOfficeDiagnostics();
+                if (!diagnostics) {
+                  setNotice({ type: "info", text: "No diagnostic data captured yet." });
+                  return;
+                }
+
+                setLastDiagnostics(diagnostics);
+                downloadFile(
+                  "skripsi-helper-diagnostic-report.json",
+                  JSON.stringify(diagnostics, null, 2)
+                );
+                setNotice({ type: "ok", text: "Diagnostic report exported." });
+              }}
+              disabled={busyAction.length > 0}
+            >
+              Export Diagnostic JSON
+            </button>
+          </div>
+          {diagnosticMode && lastDiagnostics ? (
+            <div className="audit-list">
+              <div className="audit-item">
+                Last action: <strong>{lastDiagnostics.operation}</strong> | Target: <strong>{lastDiagnostics.target}</strong> | Updated:
+                <strong> {lastDiagnostics.updated}</strong> | Failed: <strong>{lastDiagnostics.failed}</strong>
+              </div>
+              {lastDiagnostics.batchError ? (
+                <div className="audit-item">Batch error: {lastDiagnostics.batchError}</div>
+              ) : null}
+              {lastDiagnostics.failures.slice(0, 10).map((item) => (
+                <div key={`${item.paragraphIndex}-${item.phase}-${item.statement ?? item.error}`} className="audit-item">
+                  #{item.paragraphIndex} ({item.phase}) - {item.textPreview}
+                  <br />
+                  Error: {item.error}
+                  {item.errorLocation ? <span> | Location: {item.errorLocation}</span> : null}
+                </div>
+              ))}
+              {lastDiagnostics.failures.length > 10 ? (
+                <div className="audit-item">Showing first 10 failed paragraphs.</div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <div className="grid">
@@ -417,16 +531,38 @@ export default function TaskpanePage() {
           </section>
 
           <section className="card">
-            <h2>Body Style Quick Editor</h2>
-            <p>Edit core body formatting values before applying to document.</p>
+            <h2>Style Editor</h2>
+            <p>Customize each preset style and map it to Word built-in styles for consistent TOC behavior.</p>
+
+            <div className="row inline">
+              <div>
+                <label htmlFor="style-editor-key">Editing style</label>
+                <select
+                  id="style-editor-key"
+                  value={styleEditorKey}
+                  onChange={(event) => setStyleEditorKey(event.target.value as PresetStyleKey)}
+                >
+                  {STYLE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="footer-note">
+                Word built-in mapping: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong>
+              </div>
+            </div>
 
             <div className="row inline">
               <div>
                 <label htmlFor="font-name">Font</label>
                 <input
                   id="font-name"
-                  value={workingPreset.styles.body.text.fontName}
-                  onChange={(event) => updateBodyText("fontName", event.target.value)}
+                  value={editingStyle.text.fontName}
+                  onChange={(event) =>
+                    updateStyleText(styleEditorKey, "fontName", event.target.value)
+                  }
                 />
               </div>
               <div>
@@ -434,10 +570,66 @@ export default function TaskpanePage() {
                 <input
                   id="font-size"
                   type="number"
-                  value={workingPreset.styles.body.text.fontSizePt}
-                  onChange={(event) => updateBodyText("fontSizePt", Number(event.target.value))}
+                  value={editingStyle.text.fontSizePt}
+                  onChange={(event) =>
+                    updateStyleText(styleEditorKey, "fontSizePt", Number(event.target.value))
+                  }
                 />
               </div>
+            </div>
+
+            <div className="row inline">
+              <label style={{ marginBottom: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={editingStyle.text.bold}
+                  onChange={(event) =>
+                    updateStyleText(styleEditorKey, "bold", event.target.checked)
+                  }
+                  style={{ width: "auto", marginRight: 8 }}
+                />
+                Bold
+              </label>
+              <label style={{ marginBottom: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={editingStyle.text.italic}
+                  onChange={(event) =>
+                    updateStyleText(styleEditorKey, "italic", event.target.checked)
+                  }
+                  style={{ width: "auto", marginRight: 8 }}
+                />
+                Italic
+              </label>
+            </div>
+
+            <div className="row inline">
+              <label style={{ marginBottom: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={editingStyle.text.underline === "Single"}
+                  onChange={(event) =>
+                    updateStyleText(
+                      styleEditorKey,
+                      "underline",
+                      event.target.checked ? "Single" : "None"
+                    )
+                  }
+                  style={{ width: "auto", marginRight: 8 }}
+                />
+                Underline
+              </label>
+              <label style={{ marginBottom: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={editingStyle.text.allCaps}
+                  onChange={(event) =>
+                    updateStyleText(styleEditorKey, "allCaps", event.target.checked)
+                  }
+                  style={{ width: "auto", marginRight: 8 }}
+                />
+                All Caps
+              </label>
             </div>
 
             <div className="row inline">
@@ -445,9 +637,9 @@ export default function TaskpanePage() {
                 <label htmlFor="alignment">Alignment</label>
                 <select
                   id="alignment"
-                  value={workingPreset.styles.body.paragraph.alignment}
+                  value={editingStyle.paragraph.alignment}
                   onChange={(event) =>
-                    updateBodyParagraph("alignment", event.target.value as Alignment)
+                    updateStyleParagraph(styleEditorKey, "alignment", event.target.value as Alignment)
                   }
                 >
                   <option value="Left">Left</option>
@@ -461,9 +653,9 @@ export default function TaskpanePage() {
                 <input
                   id="line-spacing"
                   type="number"
-                  value={workingPreset.styles.body.paragraph.lineSpacingPt}
+                  value={editingStyle.paragraph.lineSpacingPt}
                   onChange={(event) =>
-                    updateBodyParagraph("lineSpacingPt", Number(event.target.value))
+                    updateStyleParagraph(styleEditorKey, "lineSpacingPt", Number(event.target.value))
                   }
                 />
               </div>
@@ -475,9 +667,9 @@ export default function TaskpanePage() {
                 <input
                   id="space-before"
                   type="number"
-                  value={workingPreset.styles.body.paragraph.spaceBeforePt}
+                  value={editingStyle.paragraph.spaceBeforePt}
                   onChange={(event) =>
-                    updateBodyParagraph("spaceBeforePt", Number(event.target.value))
+                    updateStyleParagraph(styleEditorKey, "spaceBeforePt", Number(event.target.value))
                   }
                 />
               </div>
@@ -486,9 +678,9 @@ export default function TaskpanePage() {
                 <input
                   id="space-after"
                   type="number"
-                  value={workingPreset.styles.body.paragraph.spaceAfterPt}
+                  value={editingStyle.paragraph.spaceAfterPt}
                   onChange={(event) =>
-                    updateBodyParagraph("spaceAfterPt", Number(event.target.value))
+                    updateStyleParagraph(styleEditorKey, "spaceAfterPt", Number(event.target.value))
                   }
                 />
               </div>
@@ -501,12 +693,56 @@ export default function TaskpanePage() {
                   id="first-line-indent"
                   type="number"
                   step="0.01"
-                  value={workingPreset.styles.body.paragraph.firstLineIndentCm}
+                  value={editingStyle.paragraph.firstLineIndentCm}
                   onChange={(event) =>
-                    updateBodyParagraph("firstLineIndentCm", Number(event.target.value))
+                    updateStyleParagraph(
+                      styleEditorKey,
+                      "firstLineIndentCm",
+                      Number(event.target.value)
+                    )
                   }
                 />
               </div>
+              <div>
+                <label htmlFor="left-indent">Left indent (cm)</label>
+                <input
+                  id="left-indent"
+                  type="number"
+                  step="0.01"
+                  value={editingStyle.paragraph.leftIndentCm}
+                  onChange={(event) =>
+                    updateStyleParagraph(styleEditorKey, "leftIndentCm", Number(event.target.value))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="row inline">
+              <div>
+                <label htmlFor="right-indent">Right indent (cm)</label>
+                <input
+                  id="right-indent"
+                  type="number"
+                  step="0.01"
+                  value={editingStyle.paragraph.rightIndentCm}
+                  onChange={(event) =>
+                    updateStyleParagraph(styleEditorKey, "rightIndentCm", Number(event.target.value))
+                  }
+                />
+              </div>
+              <button
+                onClick={() =>
+                  runAction("Sync preset to Word built-in styles", async () => {
+                    await syncPresetToWordBuiltInStyles(workingPreset);
+                  })
+                }
+                disabled={!isWordReady || busyAction.length > 0}
+              >
+                Sync Preset to Word Styles
+              </button>
+            </div>
+
+            <div className="row inline">
               <div>
                 <label htmlFor="caption-separator-figure">Figure separator</label>
                 <select
@@ -521,9 +757,6 @@ export default function TaskpanePage() {
                   <option value="-">-</option>
                 </select>
               </div>
-            </div>
-
-            <div className="row">
               <div>
                 <label htmlFor="caption-separator-table">Table separator</label>
                 <select
@@ -539,11 +772,15 @@ export default function TaskpanePage() {
                 </select>
               </div>
             </div>
+            <p className="footer-note">
+              Caption Figure and Caption Table share Word built-in style `Caption`. Keep both caption
+              presets similar when you need perfect built-in style synchronization.
+            </p>
           </section>
 
           <section className="card">
             <h2>Formatting Actions</h2>
-            <p>Apply selected style or enforce heading levels.</p>
+            <p>Apply styles with built-in registration, run chapter-aware autofix, or enforce heading levels.</p>
 
             <div className="row inline">
               <div>
@@ -579,6 +816,7 @@ export default function TaskpanePage() {
                 onClick={() =>
                   runAction("Apply style preset", async () => {
                     const count = await applyStylePresetToTarget(
+                      styleKey,
                       workingPreset.styles[styleKey],
                       applyTarget
                     );
@@ -594,26 +832,8 @@ export default function TaskpanePage() {
               </button>
               <button
                 onClick={() =>
-                  runAction("Normalize entire document", async () => {
-                    const count = await normalizeDocumentWithStyle(workingPreset.styles.body);
-                    setNotice({
-                      type: "ok",
-                      text: `Normalize entire document completed. Updated ${count} paragraph(s).`,
-                    });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Normalize as Body Style
-              </button>
-              <button
-                onClick={() =>
                   runAction("Chapter-aware autofix", async () => {
-                    const summary = await applyChapterAwareFormatting(
-                      workingPreset,
-                      applyTarget,
-                      enforceHeadingBuiltInStyle
-                    );
+                    const summary = await applyChapterAwareFormatting(workingPreset, applyTarget);
                     setNotice({
                       type: "ok",
                       text:
@@ -628,18 +848,6 @@ export default function TaskpanePage() {
               >
                 Chapter-Aware Autofix
               </button>
-            </div>
-
-            <div className="row">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={enforceHeadingBuiltInStyle}
-                  onChange={(event) => setEnforceHeadingBuiltInStyle(event.target.checked)}
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                Enforce Word Heading 1/2/3 built-in styles during chapter-aware autofix
-              </label>
             </div>
 
             <div className="row inline">
@@ -791,8 +999,8 @@ export default function TaskpanePage() {
           </section>
 
           <section className="card">
-            <h2>Audit + Fix</h2>
-            <p>Audit body paragraphs against body style and auto-fix mismatches.</p>
+            <h2>Audit</h2>
+            <p>Audit body-like paragraphs against body style to review remaining mismatches.</p>
 
             <div className="actions">
               <button
@@ -811,23 +1019,12 @@ export default function TaskpanePage() {
               >
                 Run Audit
               </button>
-              <button
-                onClick={() =>
-                  runAction("Fix mismatches", async () => {
-                    const fixed = await fixDocumentBodyMismatches(workingPreset.styles.body);
-                    setNotice({ type: "ok", text: `Fixed ${fixed} paragraph(s).` });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Fix All
-              </button>
             </div>
 
             {auditReport ? (
               <div className="audit-list">
                 <div className="audit-item">
-                  Total paragraphs: <strong>{auditReport.totalParagraphs}</strong> | Mismatches: <strong>{auditReport.mismatches.length}</strong>
+                  Audited body paragraphs: <strong>{auditReport.totalParagraphs}</strong> | Mismatches: <strong>{auditReport.mismatches.length}</strong>
                 </div>
                 {auditReport.mismatches.slice(0, 20).map((item) => (
                   <div key={`${item.index}-${item.textPreview}`} className="audit-item">
