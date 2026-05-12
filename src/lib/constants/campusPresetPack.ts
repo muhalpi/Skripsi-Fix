@@ -21,7 +21,7 @@ export const CAMPUS_PRESET_PACK: SkripsiPresetV1[] = [
   DEFAULT_PRESET,
   buildVariant(
     "kampus-template-teknik-v1",
-    "Campus Pack: Teknik Double Spacing",
+    "Paket Kampus: Teknik Spasi Ganda",
     (preset) => {
       preset.styles.heading1.paragraph.alignment = "Centered";
       preset.styles.heading1.text.allCaps = true;
@@ -35,7 +35,7 @@ export const CAMPUS_PRESET_PACK: SkripsiPresetV1[] = [
   ),
   buildVariant(
     "kampus-template-soshum-v1",
-    "Campus Pack: Soshum 1.5 Spacing",
+    "Paket Kampus: Soshum Spasi 1.5",
     (preset) => {
       preset.styles.body.paragraph.lineSpacingPt = 18;
       preset.styles.body.paragraph.firstLineIndentCm = 1.25;
@@ -50,7 +50,7 @@ export const CAMPUS_PRESET_PACK: SkripsiPresetV1[] = [
   ),
   buildVariant(
     "kampus-template-riset-v1",
-    "Campus Pack: Riset Formal",
+    "Paket Kampus: Riset Formal",
     (preset) => {
       preset.styles.body.text.fontName = "Arial";
       preset.styles.body.text.fontSizePt = 11;
@@ -73,7 +73,7 @@ export const CAMPUS_PRESET_PACK: SkripsiPresetV1[] = [
   ),
   buildVariant(
     "kampus-template-kesehatan-v1",
-    "Campus Pack: Kesehatan Presisi",
+    "Paket Kampus: Kesehatan Presisi",
     (preset) => {
       preset.styles.body.paragraph.lineSpacingPt = 20;
       preset.styles.body.paragraph.firstLineIndentCm = 1.25;
@@ -94,4 +94,4 @@ export const CAMPUS_PRESET_PACK: SkripsiPresetV1[] = [
 export const BUILT_IN_PRESET_IDS = CAMPUS_PRESET_PACK.map((preset) => preset.id);
 export const DEFAULT_PRESET_LIBRARY: SkripsiPresetV1[] = CAMPUS_PRESET_PACK;
 export const PRESET_PACK_NOTICE =
-  "Built-in campus packs are starter templates. Always confirm with your official faculty formatting guide.";
+  "Paket kampus bawaan adalah template awal. Selalu cocokkan dengan pedoman format resmi fakultas Anda.";

@@ -11,8 +11,8 @@ export async function waitForOfficeReady(): Promise<OfficeRuntimeStatus> {
       return {
         isOfficeReady: false,
         isWordHost: false,
-        hostName: "Unknown",
-        details: "Office.js is not available. Open this page inside Word Add-in task pane.",
+        hostName: "Tidak diketahui",
+        details: "Office.js tidak tersedia. Buka halaman ini di task pane add-in Word.",
       };
     }
 
@@ -26,17 +26,17 @@ export async function waitForOfficeReady(): Promise<OfficeRuntimeStatus> {
       isWordHost,
       hostName: host ? String(host) : "Browser",
       details: isWordHost
-        ? "Connected to Microsoft Word."
+        ? "Terhubung ke Microsoft Word."
         : host
-          ? `Connected to Office host: ${String(host)}. This add-in is designed for Word.`
-          : "Running outside Office host (browser preview mode).",
+          ? `Terhubung ke host Office: ${String(host)}. Add-in ini dirancang untuk Word.`
+          : "Berjalan di luar host Office (mode pratinjau browser).",
     };
   } catch {
     return {
       isOfficeReady: false,
       isWordHost: false,
-      hostName: "Unknown",
-      details: "Office runtime is still initializing. Please retry in Word task pane.",
+      hostName: "Tidak diketahui",
+      details: "Runtime Office masih inisialisasi. Coba lagi dari task pane Word.",
     };
   }
 }

@@ -57,13 +57,13 @@ import type {
 } from "@/types/preset";
 
 const STYLE_OPTIONS: Array<{ value: PresetStyleKey; label: string }> = [
-  { value: "body", label: "Body" },
-  { value: "heading1", label: "Heading 1" },
-  { value: "heading2", label: "Heading 2" },
-  { value: "heading3", label: "Heading 3" },
-  { value: "quote", label: "Quote" },
-  { value: "captionFigure", label: "Caption Figure" },
-  { value: "captionTable", label: "Caption Table" },
+  { value: "body", label: "Teks Utama" },
+  { value: "heading1", label: "Judul 1" },
+  { value: "heading2", label: "Judul 2" },
+  { value: "heading3", label: "Judul 3" },
+  { value: "quote", label: "Kutipan" },
+  { value: "captionFigure", label: "Keterangan Gambar" },
+  { value: "captionTable", label: "Keterangan Tabel" },
 ];
 
 type Notice = {
@@ -106,7 +106,7 @@ function extractErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return "Unknown error.";
+  return "Terjadi kesalahan yang tidak diketahui.";
 }
 
 function downloadFile(filename: string, content: string): void {
@@ -123,13 +123,13 @@ export default function TaskpanePage() {
   const [runtime, setRuntime] = useState<RuntimeState>({
     isOfficeReady: false,
     isWordHost: false,
-    hostName: "Unknown",
-    details: "Checking Office runtime...",
+    hostName: "Tidak diketahui",
+    details: "Memeriksa runtime Office...",
   });
   const [busyAction, setBusyAction] = useState<string>("");
   const [notice, setNotice] = useState<Notice>({
     type: "info",
-    text: "Load this page from Word add-in task pane to start formatting.",
+    text: "Buka halaman ini dari task pane add-in Word untuk mulai memformat.",
   });
 
   const [presets, setPresets] = useState<SkripsiPresetV1[]>([]);
@@ -221,7 +221,7 @@ export default function TaskpanePage() {
         setNotice({
           type: "error",
           text:
-            `${actionName} completed with ${diagnostics.failed} failed paragraph(s). ` +
+            `${actionName} selesai dengan ${diagnostics.failed} paragraf gagal diproses. ` +
             summarizeDiagnostics(diagnostics),
         });
         return;
@@ -230,14 +230,14 @@ export default function TaskpanePage() {
       if (diagnosticMode && hasNewDiagnostics && diagnostics?.fallbackUsed) {
         setNotice({
           type: "info",
-          text: `${actionName} completed using fallback path. ${summarizeDiagnostics(diagnostics)}`,
+          text: `${actionName} selesai menggunakan jalur fallback. ${summarizeDiagnostics(diagnostics)}`,
         });
         return;
       }
 
-      setNotice({ type: "ok", text: `${actionName} completed.` });
+      setNotice({ type: "ok", text: `${actionName} berhasil.` });
     } catch (error: unknown) {
-      setNotice({ type: "error", text: `${actionName} failed: ${extractErrorMessage(error)}` });
+      setNotice({ type: "error", text: `${actionName} gagal: ${extractErrorMessage(error)}` });
     } finally {
       setBusyAction("");
     }
@@ -289,21 +289,21 @@ export default function TaskpanePage() {
 
   function handleCreatePresetCopy(): void {
     const base = clonePreset(workingPreset);
-    const nextName = `${base.name} Copy`;
+    const nextName = `${base.name} Salinan`;
     const nextPreset: SkripsiPresetV1 = {
       ...base,
       id: createPresetId(nextName),
       name: nextName,
     };
 
-    persistPreset(nextPreset, "Preset copy created.");
+    persistPreset(nextPreset, "Salinan preset berhasil dibuat.");
   }
 
   function handleDeletePreset(): void {
     if (selectedPresetIsBuiltIn) {
       setNotice({
         type: "info",
-        text: "Built-in campus presets are protected. Create a copy before deleting.",
+        text: "Preset bawaan kampus dilindungi. Buat salinan dulu sebelum menghapus.",
       });
       return;
     }
@@ -311,18 +311,19 @@ export default function TaskpanePage() {
     const next = deleteLocalPreset(selectedPreset.id);
     setPresets(next);
     setSelectedPresetId(next[0]?.id ?? DEFAULT_PRESET.id);
-    setNotice({ type: "ok", text: "Preset deleted." });
+    setNotice({ type: "ok", text: "Preset berhasil dihapus." });
   }
 
   function handleSavePresetToLibrary(): void {
     const cleaned = clonePreset(workingPreset);
     if (!cleaned.id || isBuiltInPresetId(cleaned.id)) {
       cleaned.id = createPresetId(cleaned.name);
-      if (!cleaned.name.toLowerCase().includes("custom")) {
-        cleaned.name = `${cleaned.name} Custom`;
+      const lowerName = cleaned.name.toLowerCase();
+      if (!lowerName.includes("custom") && !lowerName.includes("kustom")) {
+        cleaned.name = `${cleaned.name} Kustom`;
       }
     }
-    persistPreset(cleaned, "Preset saved to local library.");
+    persistPreset(cleaned, "Preset berhasil disimpan ke pustaka lokal.");
   }
 
   function handleImportFile(event: ChangeEvent<HTMLInputElement>): void {
@@ -346,8 +347,8 @@ export default function TaskpanePage() {
     setNotice({
       type: "info",
       text: enabled
-        ? "Diagnostic mode enabled. Failed paragraph details will be captured."
-        : "Diagnostic mode disabled.",
+        ? "Mode diagnostik aktif. Detail paragraf yang gagal akan direkam."
+        : "Mode diagnostik nonaktif.",
     });
   }
 
@@ -355,13 +356,13 @@ export default function TaskpanePage() {
     <main>
       <div className="shell">
         <section className="status info compact-meta">
-          Host: <strong>{runtime.hostName}</strong> | Ready: <strong>{String(isWordReady)}</strong> |
-          WordApi 1.5: <strong>{String(isWordApi15Supported)}</strong>
+          Host: <strong>{runtime.hostName}</strong> | Siap: <strong>{isWordReady ? "Ya" : "Tidak"}</strong> |
+          WordApi 1.5: <strong>{isWordApi15Supported ? "Ya" : "Tidak"}</strong>
         </section>
 
         <section className="card">
           <h1 className="panel-title">Skripsi Helper</h1>
-          <p className="panel-subtitle">Compact controls for Word task pane.</p>
+          <p className="panel-subtitle">Kontrol ringkas untuk task pane Word.</p>
 
           <div className="row">
             <label htmlFor="preset-select">Preset</label>
@@ -377,7 +378,7 @@ export default function TaskpanePage() {
               ))}
             </select>
             <div className="footer-note">
-              Type: <strong>{selectedPresetIsBuiltIn ? "Built-in" : "Custom"}</strong>
+              Tipe: <strong>{selectedPresetIsBuiltIn ? "Bawaan" : "Kustom"}</strong>
             </div>
           </div>
 
@@ -389,12 +390,12 @@ export default function TaskpanePage() {
                 value={applyTarget}
                 onChange={(event) => setApplyTarget(event.target.value as ApplyTarget)}
               >
-                <option value="selection">Selection</option>
-                <option value="document">Document</option>
+                <option value="selection">Seleksi</option>
+                <option value="document">Dokumen</option>
               </select>
             </div>
             <div>
-              <label htmlFor="style-key">Style</label>
+              <label htmlFor="style-key">Gaya</label>
               <select
                 id="style-key"
                 value={styleKey}
@@ -412,62 +413,62 @@ export default function TaskpanePage() {
           <div className="actions">
             <button
               onClick={() =>
-                runAction("Chapter-aware autofix", async () => {
+                runAction("Autofix berbasis bab", async () => {
                   const summary = await applyChapterAwareFormatting(workingPreset, applyTarget);
                   setNotice({
                     type: "ok",
                     text:
-                      `Chapter-aware autofix completed on ${summary.total} paragraph(s). ` +
-                      `H1:${summary.heading1}, H2:${summary.heading2}, H3:${summary.heading3}, ` +
-                      `Body:${summary.body}, FigCaption:${summary.captionFigure}, ` +
-                      `TableCaption:${summary.captionTable}, Quote:${summary.quote}.`,
+                      `Autofix berbasis bab selesai pada ${summary.total} paragraf. ` +
+                      `J1:${summary.heading1}, J2:${summary.heading2}, J3:${summary.heading3}, ` +
+                      `Utama:${summary.body}, KetGambar:${summary.captionFigure}, ` +
+                      `KetTabel:${summary.captionTable}, Kutipan:${summary.quote}.`,
                   });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Autofix Chapter
+              Autofix Bab
             </button>
           </div>
 
           <div className="row inline">
             <div>
-              <label htmlFor="heading-level">Heading level</label>
+              <label htmlFor="heading-level">Level judul</label>
               <select
                 id="heading-level"
                 value={headingLevel}
                 onChange={(event) => setHeadingLevel(Number(event.target.value) as 1 | 2 | 3)}
               >
-                <option value={1}>Heading 1</option>
-                <option value={2}>Heading 2</option>
-                <option value={3}>Heading 3</option>
+                <option value={1}>Judul 1</option>
+                <option value={2}>Judul 2</option>
+                <option value={3}>Judul 3</option>
               </select>
             </div>
             <button
               onClick={() =>
-                runAction("Apply heading style", async () => {
+                runAction("Terapkan gaya judul", async () => {
                   const count = await applyHeadingStyle(headingLevel, applyTarget);
                   setNotice({
                     type: "ok",
-                    text: `Apply heading style completed. Updated ${count} paragraph(s).`,
+                    text: `Penerapan gaya judul selesai. ${count} paragraf diperbarui.`,
                   });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Apply Heading
+              Terapkan Judul
             </button>
           </div>
         </section>
 
         <details className="card details-card" open>
-          <summary>Preset Library</summary>
+          <summary>Pustaka Preset</summary>
           <p>{PRESET_PACK_NOTICE}</p>
 
           <div className="row inline">
-            <button onClick={handleCreatePresetCopy}>Create Copy</button>
+            <button onClick={handleCreatePresetCopy}>Buat Salinan</button>
             <button onClick={handleDeletePreset} disabled={selectedPresetIsBuiltIn}>
-              Delete
+              Hapus
             </button>
           </div>
           <div className="row">
@@ -476,15 +477,15 @@ export default function TaskpanePage() {
                 const reset = resetLocalPresetsToBuiltIns();
                 setPresets(reset);
                 setSelectedPresetId(reset[0]?.id ?? DEFAULT_PRESET.id);
-                setNotice({ type: "ok", text: "Reset local library to built-in campus pack." });
+                setNotice({ type: "ok", text: "Pustaka lokal direset ke paket bawaan kampus." });
               }}
             >
-              Reset to Built-In Pack
+              Reset ke Paket Bawaan
             </button>
           </div>
 
           <div className="row">
-            <label htmlFor="preset-name">Preset name</label>
+            <label htmlFor="preset-name">Nama preset</label>
             <input
               id="preset-name"
               value={workingPreset.name}
@@ -499,39 +500,39 @@ export default function TaskpanePage() {
           </div>
 
           <div className="row inline">
-            <button onClick={handleSavePresetToLibrary}>Save Library</button>
+            <button onClick={handleSavePresetToLibrary}>Simpan Pustaka</button>
             <button
               onClick={() =>
-                runAction("Save preset to document", async () => {
+                runAction("Simpan preset ke dokumen", async () => {
                   await saveDocumentPreset(workingPreset);
                 })
               }
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Save Doc
+              Simpan Dok
             </button>
           </div>
 
           <div className="row inline">
             <button
               onClick={() =>
-                runAction("Load preset from document", async () => {
+                runAction("Muat preset dari dokumen", async () => {
                   const fromDoc = loadDocumentPreset();
                   if (!fromDoc) {
-                    throw new Error("No preset found in this document.");
+                    throw new Error("Preset tidak ditemukan di dokumen ini.");
                   }
-                  persistPreset(fromDoc, "Loaded preset from document.");
+                  persistPreset(fromDoc, "Preset berhasil dimuat dari dokumen.");
                 })
               }
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Load Doc
+              Muat Dok
             </button>
             <button
-              onClick={() => runAction("Clear document preset", clearDocumentPreset)}
+              onClick={() => runAction("Hapus preset dokumen", clearDocumentPreset)}
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Clear Doc
+              Bersihkan Dok
             </button>
           </div>
 
@@ -540,21 +541,21 @@ export default function TaskpanePage() {
               onClick={() => downloadFile("skripsi-presets.json", exportPresetsJson())}
               disabled={busyAction.length > 0}
             >
-              Export JSON
+              Ekspor JSON
             </button>
             <label style={{ marginBottom: 0 }}>
-              <span style={{ display: "block", marginBottom: 4 }}>Import file</span>
+              <span style={{ display: "block", marginBottom: 4 }}>Impor file</span>
               <input type="file" accept="application/json,.json" onChange={handleImportFile} />
             </label>
           </div>
 
           <div className="row">
-            <label htmlFor="import-json">Import JSON text</label>
+            <label htmlFor="import-json">Impor teks JSON</label>
             <textarea
               id="import-json"
               value={importText}
               onChange={(event) => setImportText(event.target.value)}
-              placeholder="Paste preset JSON array here"
+              placeholder="Tempel array JSON preset di sini"
             />
             <button
               onClick={() => {
@@ -562,38 +563,38 @@ export default function TaskpanePage() {
                   const next = importPresetsJson(importText);
                   setPresets(next);
                   setSelectedPresetId(next[0]?.id ?? DEFAULT_PRESET.id);
-                  setNotice({ type: "ok", text: "Presets imported from JSON." });
+                  setNotice({ type: "ok", text: "Preset berhasil diimpor dari JSON." });
                 } catch (error: unknown) {
-                  setNotice({ type: "error", text: `Import failed: ${extractErrorMessage(error)}` });
+                  setNotice({ type: "error", text: `Impor gagal: ${extractErrorMessage(error)}` });
                 }
               }}
             >
-              Import Presets
+              Impor Preset
             </button>
           </div>
         </details>
 
         <details className="card details-card">
-          <summary>Captions + TOC</summary>
+          <summary>Keterangan + Daftar Isi</summary>
           <div className="row inline">
             <div>
-              <label htmlFor="caption-label">Caption label</label>
+              <label htmlFor="caption-label">Label keterangan</label>
               <select
                 id="caption-label"
                 value={captionLabel}
                 onChange={(event) => setCaptionLabel(event.target.value as CaptionLabel)}
               >
-                <option value="Figure">Figure</option>
-                <option value="Table">Table</option>
+                <option value="Figure">Gambar</option>
+                <option value="Table">Tabel</option>
               </select>
             </div>
             <div>
-              <label htmlFor="caption-title">Caption title</label>
+              <label htmlFor="caption-title">Judul keterangan</label>
               <input
                 id="caption-title"
                 value={captionTitle}
                 onChange={(event) => setCaptionTitle(event.target.value)}
-                placeholder="Caption title"
+                placeholder="Judul keterangan"
               />
             </div>
           </div>
@@ -602,9 +603,9 @@ export default function TaskpanePage() {
             <button
               className="primary"
               onClick={() =>
-                runAction("Insert caption", async () => {
+                runAction("Sisipkan keterangan", async () => {
                   if (!captionTitle.trim()) {
-                    throw new Error("Caption title cannot be empty.");
+                    throw new Error("Judul keterangan tidak boleh kosong.");
                   }
 
                   await insertCaption({
@@ -622,77 +623,77 @@ export default function TaskpanePage() {
               }
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Insert Caption
+              Sisipkan Keterangan
             </button>
             <button
-              onClick={() => runAction("Insert TOC at selection", insertTocAtSelection)}
+              onClick={() => runAction("Sisipkan daftar isi di seleksi", insertTocAtSelection)}
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Insert TOC
+              Sisipkan Daftar Isi
             </button>
             <button
-              onClick={() => runAction("Insert list of figures", insertListOfFiguresAtSelection)}
+              onClick={() => runAction("Sisipkan daftar gambar", insertListOfFiguresAtSelection)}
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Insert List Figures
+              Sisipkan Daftar Gambar
             </button>
             <button
-              onClick={() => runAction("Insert list of tables", insertListOfTablesAtSelection)}
+              onClick={() => runAction("Sisipkan daftar tabel", insertListOfTablesAtSelection)}
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Insert List Tables
+              Sisipkan Daftar Tabel
             </button>
             <button
               onClick={() =>
-                runAction("Update TOC fields", async () => {
+                runAction("Perbarui field daftar isi", async () => {
                   const count = await updateTocFields();
-                  setNotice({ type: "ok", text: `Updated ${count} TOC field(s).` });
+                  setNotice({ type: "ok", text: `${count} field daftar isi diperbarui.` });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Update TOC
+              Perbarui Daftar Isi
             </button>
             <button
               onClick={() =>
-                runAction("Update list of figures fields", async () => {
+                runAction("Perbarui field daftar gambar", async () => {
                   const count = await updateListOfFiguresFields();
-                  setNotice({ type: "ok", text: `Updated ${count} list-of-figures field(s).` });
+                  setNotice({ type: "ok", text: `${count} field daftar gambar diperbarui.` });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Update List Figures
+              Perbarui Daftar Gambar
             </button>
             <button
               onClick={() =>
-                runAction("Update list of tables fields", async () => {
+                runAction("Perbarui field daftar tabel", async () => {
                   const count = await updateListOfTablesFields();
-                  setNotice({ type: "ok", text: `Updated ${count} list-of-tables field(s).` });
+                  setNotice({ type: "ok", text: `${count} field daftar tabel diperbarui.` });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Update List Tables
+              Perbarui Daftar Tabel
             </button>
             <button
               onClick={() =>
-                runAction("Update all fields", async () => {
+                runAction("Perbarui semua field", async () => {
                   const count = await updateAllFields();
-                  setNotice({ type: "ok", text: `Updated ${count} field(s) in document body.` });
+                  setNotice({ type: "ok", text: `${count} field di isi dokumen diperbarui.` });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
             >
-              Update All Fields
+              Perbarui Semua Field
             </button>
           </div>
         </details>
 
         <details className="card details-card">
-          <summary>Style Editor</summary>
+          <summary>Editor Gaya</summary>
           <div className="row">
-            <label htmlFor="style-editor-key">Editing style</label>
+            <label htmlFor="style-editor-key">Gaya yang diedit</label>
             <select
               id="style-editor-key"
               value={styleEditorKey}
@@ -705,7 +706,7 @@ export default function TaskpanePage() {
               ))}
             </select>
             <div className="footer-note">
-              Built-in mapping: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong> | Fonts:
+              Pemetaan bawaan: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong> | Font:
               <strong> {availableFonts.length}</strong>
             </div>
             <button
@@ -714,7 +715,7 @@ export default function TaskpanePage() {
               }}
               disabled={fontScanBusy || busyAction.length > 0}
             >
-              {fontScanBusy ? "Scanning Fonts..." : "Rescan Fonts"}
+              {fontScanBusy ? "Memindai Font..." : "Pindai Ulang Font"}
             </button>
           </div>
 
@@ -736,7 +737,7 @@ export default function TaskpanePage() {
               </select>
             </div>
             <div>
-              <label htmlFor="font-size">Font size (pt)</label>
+              <label htmlFor="font-size">Ukuran font (pt)</label>
               <input
                 id="font-size"
                 type="number"
@@ -756,7 +757,7 @@ export default function TaskpanePage() {
                 onChange={(event) => updateStyleText(styleEditorKey, "bold", event.target.checked)}
                 style={{ width: "auto", marginRight: 8 }}
               />
-              Bold
+              Tebal
             </label>
             <label style={{ marginBottom: 0 }}>
               <input
@@ -767,7 +768,7 @@ export default function TaskpanePage() {
                 }
                 style={{ width: "auto", marginRight: 8 }}
               />
-              Italic
+              Miring
             </label>
           </div>
 
@@ -785,7 +786,7 @@ export default function TaskpanePage() {
                 }
                 style={{ width: "auto", marginRight: 8 }}
               />
-              Underline
+              Garis bawah
             </label>
             <label style={{ marginBottom: 0 }}>
               <input
@@ -796,13 +797,13 @@ export default function TaskpanePage() {
                 }
                 style={{ width: "auto", marginRight: 8 }}
               />
-              All Caps
+              Huruf kapital semua
             </label>
           </div>
 
           <div className="row inline">
             <div>
-              <label htmlFor="alignment">Alignment</label>
+              <label htmlFor="alignment">Perataan</label>
               <select
                 id="alignment"
                 value={editingStyle.paragraph.alignment}
@@ -810,14 +811,14 @@ export default function TaskpanePage() {
                   updateStyleParagraph(styleEditorKey, "alignment", event.target.value as Alignment)
                 }
               >
-                <option value="Left">Left</option>
-                <option value="Centered">Centered</option>
-                <option value="Right">Right</option>
-                <option value="Justified">Justified</option>
+                <option value="Left">Kiri</option>
+                <option value="Centered">Tengah</option>
+                <option value="Right">Kanan</option>
+                <option value="Justified">Rata kiri-kanan</option>
               </select>
             </div>
             <div>
-              <label htmlFor="line-spacing">Line spacing (pt)</label>
+              <label htmlFor="line-spacing">Spasi baris (pt)</label>
               <input
                 id="line-spacing"
                 type="number"
@@ -831,7 +832,7 @@ export default function TaskpanePage() {
 
           <div className="row inline">
             <div>
-              <label htmlFor="space-before">Space before (pt)</label>
+              <label htmlFor="space-before">Jarak sebelum (pt)</label>
               <input
                 id="space-before"
                 type="number"
@@ -842,7 +843,7 @@ export default function TaskpanePage() {
               />
             </div>
             <div>
-              <label htmlFor="space-after">Space after (pt)</label>
+              <label htmlFor="space-after">Jarak sesudah (pt)</label>
               <input
                 id="space-after"
                 type="number"
@@ -856,7 +857,7 @@ export default function TaskpanePage() {
 
           <div className="row inline">
             <div>
-              <label htmlFor="first-line-indent">First line indent (cm)</label>
+              <label htmlFor="first-line-indent">Indent baris pertama (cm)</label>
               <input
                 id="first-line-indent"
                 type="number"
@@ -872,7 +873,7 @@ export default function TaskpanePage() {
               />
             </div>
             <div>
-              <label htmlFor="left-indent">Left indent (cm)</label>
+              <label htmlFor="left-indent">Indent kiri (cm)</label>
               <input
                 id="left-indent"
                 type="number"
@@ -887,7 +888,7 @@ export default function TaskpanePage() {
 
           <div className="row inline">
             <div>
-              <label htmlFor="right-indent">Right indent (cm)</label>
+              <label htmlFor="right-indent">Indent kanan (cm)</label>
               <input
                 id="right-indent"
                 type="number"
@@ -900,19 +901,19 @@ export default function TaskpanePage() {
             </div>
             <button
               onClick={() =>
-                runAction("Sync preset to Word built-in styles", async () => {
+                runAction("Sinkronkan preset ke gaya bawaan Word", async () => {
                   await syncPresetToWordBuiltInStyles(workingPreset);
                 })
               }
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Sync to Word Styles
+              Sinkron ke Gaya Word
             </button>
           </div>
 
           <div className="row inline">
             <div>
-              <label htmlFor="caption-separator-figure">Figure separator</label>
+              <label htmlFor="caption-separator-figure">Pemisah gambar</label>
               <select
                 id="caption-separator-figure"
                 value={workingPreset.captions.figure.separator}
@@ -926,7 +927,7 @@ export default function TaskpanePage() {
               </select>
             </div>
             <div>
-              <label htmlFor="caption-separator-table">Table separator</label>
+              <label htmlFor="caption-separator-table">Pemisah tabel</label>
               <select
                 id="caption-separator-table"
                 value={workingPreset.captions.table.separator}
@@ -948,44 +949,44 @@ export default function TaskpanePage() {
             <button
               className="primary"
               onClick={() =>
-                runAction("Audit document", async () => {
+                runAction("Audit dokumen", async () => {
                   const report = await auditDocumentBody(workingPreset.styles.body);
                   setAuditReport(report);
                   setNotice({
                     type: "ok",
-                    text: `Audit complete. ${report.mismatches.length} mismatch(es) out of ${report.totalParagraphs} paragraph(s).`,
+                    text: `Audit selesai. ${report.mismatches.length} ketidaksesuaian dari ${report.totalParagraphs} paragraf.`,
                   });
                 })
               }
               disabled={!isWordReady || busyAction.length > 0}
             >
-              Run Audit
+              Jalankan Audit
             </button>
           </div>
 
           {auditReport ? (
             <div className="audit-list">
               <div className="audit-item">
-                Audited body paragraphs: <strong>{auditReport.totalParagraphs}</strong> | Mismatches:
+                Paragraf utama diaudit: <strong>{auditReport.totalParagraphs}</strong> | Ketidaksesuaian:
                 <strong> {auditReport.mismatches.length}</strong>
               </div>
               {auditReport.mismatches.slice(0, 20).map((item) => (
                 <div key={`${item.index}-${item.textPreview}`} className="audit-item">
                   #{item.index} - {item.textPreview}
                   <br />
-                  Issues: {item.reasons.join(", ")}
+                  Masalah: {item.reasons.join(", ")}
                 </div>
               ))}
               {auditReport.mismatches.length > 20 ? (
-                <div className="audit-item">Showing first 20 mismatches.</div>
+                <div className="audit-item">Menampilkan 20 ketidaksesuaian pertama.</div>
               ) : null}
             </div>
           ) : null}
         </details>
 
         <details className="card details-card">
-          <summary>Diagnostics</summary>
-          <p>Capture paragraph-level failures for apply and heading actions.</p>
+          <summary>Diagnostik</summary>
+          <p>Rekam kegagalan tingkat paragraf untuk aksi apply dan heading.</p>
           <div className="row">
             <label>
               <input
@@ -994,7 +995,7 @@ export default function TaskpanePage() {
                 onChange={(event) => toggleDiagnosticMode(event.target.checked)}
                 style={{ width: "auto", marginRight: 8 }}
               />
-              Enable diagnostic mode
+              Aktifkan mode diagnostik
             </label>
           </div>
           <div className="row">
@@ -1002,7 +1003,7 @@ export default function TaskpanePage() {
               onClick={() => {
                 const diagnostics = getLastOfficeDiagnostics();
                 if (!diagnostics) {
-                  setNotice({ type: "info", text: "No diagnostic data captured yet." });
+                  setNotice({ type: "info", text: "Belum ada data diagnostik yang direkam." });
                   return;
                 }
 
@@ -1011,23 +1012,23 @@ export default function TaskpanePage() {
                   "skripsi-helper-diagnostic-report.json",
                   JSON.stringify(diagnostics, null, 2)
                 );
-                setNotice({ type: "ok", text: "Diagnostic report exported." });
+                setNotice({ type: "ok", text: "Laporan diagnostik berhasil diekspor." });
               }}
               disabled={busyAction.length > 0}
             >
-              Export Diagnostic JSON
+              Ekspor JSON Diagnostik
             </button>
           </div>
           {diagnosticMode && lastDiagnostics ? (
             <div className="audit-list">
               <div className="audit-item">
-                Last action: <strong>{lastDiagnostics.operation}</strong> | Target:
-                <strong> {lastDiagnostics.target}</strong> | Updated:
-                <strong> {lastDiagnostics.updated}</strong> | Failed:
+                Aksi terakhir: <strong>{lastDiagnostics.operation}</strong> | Target:
+                <strong> {lastDiagnostics.target}</strong> | Diperbarui:
+                <strong> {lastDiagnostics.updated}</strong> | Gagal:
                 <strong> {lastDiagnostics.failed}</strong>
               </div>
               {lastDiagnostics.batchError ? (
-                <div className="audit-item">Batch error: {lastDiagnostics.batchError}</div>
+                <div className="audit-item">Error batch: {lastDiagnostics.batchError}</div>
               ) : null}
               {lastDiagnostics.failures.slice(0, 10).map((item) => (
                 <div
@@ -1037,25 +1038,25 @@ export default function TaskpanePage() {
                   #{item.paragraphIndex} ({item.phase}) - {item.textPreview}
                   <br />
                   Error: {item.error}
-                  {item.errorLocation ? <span> | Location: {item.errorLocation}</span> : null}
+                  {item.errorLocation ? <span> | Lokasi: {item.errorLocation}</span> : null}
                 </div>
               ))}
               {lastDiagnostics.failures.length > 10 ? (
-                <div className="audit-item">Showing first 10 failed paragraphs.</div>
+                <div className="audit-item">Menampilkan 10 paragraf gagal pertama.</div>
               ) : null}
             </div>
           ) : null}
         </details>
 
         <section className={`status ${notice.type}`}>
-          {busyAction ? `Running: ${busyAction}...` : notice.text}
+          {busyAction ? `Menjalankan: ${busyAction}...` : notice.text}
         </section>
 
         <div className="sticky-bar">
           <button
             className="primary"
             onClick={() =>
-              runAction("Apply style preset", async () => {
+              runAction("Terapkan preset gaya", async () => {
                 const count = await applyStylePresetToTarget(
                   styleKey,
                   workingPreset.styles[styleKey],
@@ -1063,18 +1064,18 @@ export default function TaskpanePage() {
                 );
                 setNotice({
                   type: "ok",
-                  text: `Apply style preset completed. Updated ${count} paragraph(s).`,
+                  text: `Penerapan preset gaya selesai. ${count} paragraf diperbarui.`,
                 });
               })
             }
             disabled={!isWordReady || busyAction.length > 0}
           >
-            Apply Style
+            Terapkan Gaya
           </button>
         </div>
 
         <p className="footer-note">
-          Caption and TOC fields require WordApi 1.5 support in your Word host.
+          Field keterangan dan daftar isi memerlukan dukungan WordApi 1.5 pada host Word Anda.
         </p>
       </div>
     </main>

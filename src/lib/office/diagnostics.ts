@@ -75,7 +75,7 @@ export function clearLastOfficeDiagnostics(): void {
 export function buildTextPreview(text: string): string {
   const compact = text.replace(/\s+/g, " ").trim();
   if (!compact) {
-    return "(empty paragraph)";
+    return "(paragraf kosong)";
   }
 
   return compact.length > 80 ? `${compact.slice(0, 80)}...` : compact;
@@ -103,13 +103,13 @@ export function extractOfficeErrorDetails(error: unknown): {
   }
 
   return {
-    message: "Unknown error.",
+    message: "Terjadi kesalahan yang tidak diketahui.",
   };
 }
 
 export function summarizeDiagnostics(diag: OfficeActionDiagnostics): string {
   if (diag.failed === 0) {
-    return `${diag.operation}: no paragraph-level failures.`;
+    return `${diag.operation}: tidak ada kegagalan tingkat paragraf.`;
   }
 
   const sample = diag.failures
@@ -117,5 +117,5 @@ export function summarizeDiagnostics(diag: OfficeActionDiagnostics): string {
     .map((item) => `#${item.paragraphIndex} (${item.phase})`)
     .join(", ");
 
-  return `${diag.operation}: ${diag.failed} paragraph(s) failed. Sample: ${sample}.`;
+  return `${diag.operation}: ${diag.failed} paragraf gagal. Contoh: ${sample}.`;
 }
