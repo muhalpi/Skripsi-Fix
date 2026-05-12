@@ -354,20 +354,637 @@ export default function TaskpanePage() {
   return (
     <main>
       <div className="shell">
-        <section className="hero">
-          <h1>Skripsi Helper for Word</h1>
-          <p>
-            Apply text presets, control captions, update TOC and lists, then audit formatting mismatches.
-          </p>
+        <section className="status info compact-meta">
+          Host: <strong>{runtime.hostName}</strong> | Ready: <strong>{String(isWordReady)}</strong> |
+          WordApi 1.5: <strong>{String(isWordApi15Supported)}</strong>
         </section>
 
-        <section className="status info" style={{ marginTop: "12px" }}>
-          Host: <strong>{runtime.hostName}</strong> | Word Ready: <strong>{String(isWordReady)}</strong> | WordApi 1.5:
-          <strong> {String(isWordApi15Supported)}</strong>
+        <section className="card">
+          <h1 className="panel-title">Skripsi Helper</h1>
+          <p className="panel-subtitle">Compact controls for Word task pane.</p>
+
+          <div className="row">
+            <label htmlFor="preset-select">Preset</label>
+            <select
+              id="preset-select"
+              value={selectedPresetId}
+              onChange={(event) => setSelectedPresetId(event.target.value)}
+            >
+              {presets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+            <div className="footer-note">
+              Type: <strong>{selectedPresetIsBuiltIn ? "Built-in" : "Custom"}</strong>
+            </div>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="apply-target">Target</label>
+              <select
+                id="apply-target"
+                value={applyTarget}
+                onChange={(event) => setApplyTarget(event.target.value as ApplyTarget)}
+              >
+                <option value="selection">Selection</option>
+                <option value="document">Document</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="style-key">Style</label>
+              <select
+                id="style-key"
+                value={styleKey}
+                onChange={(event) => setStyleKey(event.target.value as PresetStyleKey)}
+              >
+                {STYLE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="actions">
+            <button
+              onClick={() =>
+                runAction("Chapter-aware autofix", async () => {
+                  const summary = await applyChapterAwareFormatting(workingPreset, applyTarget);
+                  setNotice({
+                    type: "ok",
+                    text:
+                      `Chapter-aware autofix completed on ${summary.total} paragraph(s). ` +
+                      `H1:${summary.heading1}, H2:${summary.heading2}, H3:${summary.heading3}, ` +
+                      `Body:${summary.body}, FigCaption:${summary.captionFigure}, ` +
+                      `TableCaption:${summary.captionTable}, Quote:${summary.quote}.`,
+                  });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Autofix Chapter
+            </button>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="heading-level">Heading level</label>
+              <select
+                id="heading-level"
+                value={headingLevel}
+                onChange={(event) => setHeadingLevel(Number(event.target.value) as 1 | 2 | 3)}
+              >
+                <option value={1}>Heading 1</option>
+                <option value={2}>Heading 2</option>
+                <option value={3}>Heading 3</option>
+              </select>
+            </div>
+            <button
+              onClick={() =>
+                runAction("Apply heading style", async () => {
+                  const count = await applyHeadingStyle(headingLevel, applyTarget);
+                  setNotice({
+                    type: "ok",
+                    text: `Apply heading style completed. Updated ${count} paragraph(s).`,
+                  });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Apply Heading
+            </button>
+          </div>
         </section>
 
-        <section className="card" style={{ marginTop: "12px" }}>
-          <h2>Diagnostic Mode</h2>
+        <details className="card details-card" open>
+          <summary>Preset Library</summary>
+          <p>{PRESET_PACK_NOTICE}</p>
+
+          <div className="row inline">
+            <button onClick={handleCreatePresetCopy}>Create Copy</button>
+            <button onClick={handleDeletePreset} disabled={selectedPresetIsBuiltIn}>
+              Delete
+            </button>
+          </div>
+          <div className="row">
+            <button
+              onClick={() => {
+                const reset = resetLocalPresetsToBuiltIns();
+                setPresets(reset);
+                setSelectedPresetId(reset[0]?.id ?? DEFAULT_PRESET.id);
+                setNotice({ type: "ok", text: "Reset local library to built-in campus pack." });
+              }}
+            >
+              Reset to Built-In Pack
+            </button>
+          </div>
+
+          <div className="row">
+            <label htmlFor="preset-name">Preset name</label>
+            <input
+              id="preset-name"
+              value={workingPreset.name}
+              onChange={(event) =>
+                setDraftPreset((previous) => {
+                  const source = previous ?? clonePreset(selectedPreset);
+                  source.name = event.target.value;
+                  return { ...source };
+                })
+              }
+            />
+          </div>
+
+          <div className="row inline">
+            <button onClick={handleSavePresetToLibrary}>Save Library</button>
+            <button
+              onClick={() =>
+                runAction("Save preset to document", async () => {
+                  await saveDocumentPreset(workingPreset);
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Save Doc
+            </button>
+          </div>
+
+          <div className="row inline">
+            <button
+              onClick={() =>
+                runAction("Load preset from document", async () => {
+                  const fromDoc = loadDocumentPreset();
+                  if (!fromDoc) {
+                    throw new Error("No preset found in this document.");
+                  }
+                  persistPreset(fromDoc, "Loaded preset from document.");
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Load Doc
+            </button>
+            <button
+              onClick={() => runAction("Clear document preset", clearDocumentPreset)}
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Clear Doc
+            </button>
+          </div>
+
+          <div className="row inline">
+            <button
+              onClick={() => downloadFile("skripsi-presets.json", exportPresetsJson())}
+              disabled={busyAction.length > 0}
+            >
+              Export JSON
+            </button>
+            <label style={{ marginBottom: 0 }}>
+              <span style={{ display: "block", marginBottom: 4 }}>Import file</span>
+              <input type="file" accept="application/json,.json" onChange={handleImportFile} />
+            </label>
+          </div>
+
+          <div className="row">
+            <label htmlFor="import-json">Import JSON text</label>
+            <textarea
+              id="import-json"
+              value={importText}
+              onChange={(event) => setImportText(event.target.value)}
+              placeholder="Paste preset JSON array here"
+            />
+            <button
+              onClick={() => {
+                try {
+                  const next = importPresetsJson(importText);
+                  setPresets(next);
+                  setSelectedPresetId(next[0]?.id ?? DEFAULT_PRESET.id);
+                  setNotice({ type: "ok", text: "Presets imported from JSON." });
+                } catch (error: unknown) {
+                  setNotice({ type: "error", text: `Import failed: ${extractErrorMessage(error)}` });
+                }
+              }}
+            >
+              Import Presets
+            </button>
+          </div>
+        </details>
+
+        <details className="card details-card">
+          <summary>Captions + TOC</summary>
+          <div className="row inline">
+            <div>
+              <label htmlFor="caption-label">Caption label</label>
+              <select
+                id="caption-label"
+                value={captionLabel}
+                onChange={(event) => setCaptionLabel(event.target.value as CaptionLabel)}
+              >
+                <option value="Figure">Figure</option>
+                <option value="Table">Table</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="caption-title">Caption title</label>
+              <input
+                id="caption-title"
+                value={captionTitle}
+                onChange={(event) => setCaptionTitle(event.target.value)}
+                placeholder="Caption title"
+              />
+            </div>
+          </div>
+
+          <div className="actions">
+            <button
+              className="primary"
+              onClick={() =>
+                runAction("Insert caption", async () => {
+                  if (!captionTitle.trim()) {
+                    throw new Error("Caption title cannot be empty.");
+                  }
+
+                  await insertCaption({
+                    label: captionLabel,
+                    separator: captionPreset.separator,
+                    title: captionTitle,
+                    titleCase: captionPreset.titleCase,
+                    captionStyle:
+                      captionLabel === "Figure"
+                        ? workingPreset.styles.captionFigure
+                        : workingPreset.styles.captionTable,
+                  });
+                  setCaptionTitle("");
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Insert Caption
+            </button>
+            <button
+              onClick={() => runAction("Insert TOC at selection", insertTocAtSelection)}
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Insert TOC
+            </button>
+            <button
+              onClick={() => runAction("Insert list of figures", insertListOfFiguresAtSelection)}
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Insert List Figures
+            </button>
+            <button
+              onClick={() => runAction("Insert list of tables", insertListOfTablesAtSelection)}
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Insert List Tables
+            </button>
+            <button
+              onClick={() =>
+                runAction("Update TOC fields", async () => {
+                  const count = await updateTocFields();
+                  setNotice({ type: "ok", text: `Updated ${count} TOC field(s).` });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Update TOC
+            </button>
+            <button
+              onClick={() =>
+                runAction("Update list of figures fields", async () => {
+                  const count = await updateListOfFiguresFields();
+                  setNotice({ type: "ok", text: `Updated ${count} list-of-figures field(s).` });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Update List Figures
+            </button>
+            <button
+              onClick={() =>
+                runAction("Update list of tables fields", async () => {
+                  const count = await updateListOfTablesFields();
+                  setNotice({ type: "ok", text: `Updated ${count} list-of-tables field(s).` });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Update List Tables
+            </button>
+            <button
+              onClick={() =>
+                runAction("Update all fields", async () => {
+                  const count = await updateAllFields();
+                  setNotice({ type: "ok", text: `Updated ${count} field(s) in document body.` });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
+            >
+              Update All Fields
+            </button>
+          </div>
+        </details>
+
+        <details className="card details-card">
+          <summary>Style Editor</summary>
+          <div className="row">
+            <label htmlFor="style-editor-key">Editing style</label>
+            <select
+              id="style-editor-key"
+              value={styleEditorKey}
+              onChange={(event) => setStyleEditorKey(event.target.value as PresetStyleKey)}
+            >
+              {STYLE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <div className="footer-note">
+              Built-in mapping: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong> | Fonts:
+              <strong> {availableFonts.length}</strong>
+            </div>
+            <button
+              onClick={() => {
+                void refreshDetectedFonts(workingPreset);
+              }}
+              disabled={fontScanBusy || busyAction.length > 0}
+            >
+              {fontScanBusy ? "Scanning Fonts..." : "Rescan Fonts"}
+            </button>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="font-name">Font</label>
+              <select
+                id="font-name"
+                value={editingStyle.text.fontName}
+                onChange={(event) =>
+                  updateStyleText(styleEditorKey, "fontName", event.target.value)
+                }
+              >
+                {availableFonts.map((fontName) => (
+                  <option key={fontName} value={fontName}>
+                    {fontName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="font-size">Font size (pt)</label>
+              <input
+                id="font-size"
+                type="number"
+                value={editingStyle.text.fontSizePt}
+                onChange={(event) =>
+                  updateStyleText(styleEditorKey, "fontSizePt", Number(event.target.value))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="row inline">
+            <label style={{ marginBottom: 0 }}>
+              <input
+                type="checkbox"
+                checked={editingStyle.text.bold}
+                onChange={(event) => updateStyleText(styleEditorKey, "bold", event.target.checked)}
+                style={{ width: "auto", marginRight: 8 }}
+              />
+              Bold
+            </label>
+            <label style={{ marginBottom: 0 }}>
+              <input
+                type="checkbox"
+                checked={editingStyle.text.italic}
+                onChange={(event) =>
+                  updateStyleText(styleEditorKey, "italic", event.target.checked)
+                }
+                style={{ width: "auto", marginRight: 8 }}
+              />
+              Italic
+            </label>
+          </div>
+
+          <div className="row inline">
+            <label style={{ marginBottom: 0 }}>
+              <input
+                type="checkbox"
+                checked={editingStyle.text.underline === "Single"}
+                onChange={(event) =>
+                  updateStyleText(
+                    styleEditorKey,
+                    "underline",
+                    event.target.checked ? "Single" : "None"
+                  )
+                }
+                style={{ width: "auto", marginRight: 8 }}
+              />
+              Underline
+            </label>
+            <label style={{ marginBottom: 0 }}>
+              <input
+                type="checkbox"
+                checked={editingStyle.text.allCaps}
+                onChange={(event) =>
+                  updateStyleText(styleEditorKey, "allCaps", event.target.checked)
+                }
+                style={{ width: "auto", marginRight: 8 }}
+              />
+              All Caps
+            </label>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="alignment">Alignment</label>
+              <select
+                id="alignment"
+                value={editingStyle.paragraph.alignment}
+                onChange={(event) =>
+                  updateStyleParagraph(styleEditorKey, "alignment", event.target.value as Alignment)
+                }
+              >
+                <option value="Left">Left</option>
+                <option value="Centered">Centered</option>
+                <option value="Right">Right</option>
+                <option value="Justified">Justified</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="line-spacing">Line spacing (pt)</label>
+              <input
+                id="line-spacing"
+                type="number"
+                value={editingStyle.paragraph.lineSpacingPt}
+                onChange={(event) =>
+                  updateStyleParagraph(styleEditorKey, "lineSpacingPt", Number(event.target.value))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="space-before">Space before (pt)</label>
+              <input
+                id="space-before"
+                type="number"
+                value={editingStyle.paragraph.spaceBeforePt}
+                onChange={(event) =>
+                  updateStyleParagraph(styleEditorKey, "spaceBeforePt", Number(event.target.value))
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="space-after">Space after (pt)</label>
+              <input
+                id="space-after"
+                type="number"
+                value={editingStyle.paragraph.spaceAfterPt}
+                onChange={(event) =>
+                  updateStyleParagraph(styleEditorKey, "spaceAfterPt", Number(event.target.value))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="first-line-indent">First line indent (cm)</label>
+              <input
+                id="first-line-indent"
+                type="number"
+                step="0.01"
+                value={editingStyle.paragraph.firstLineIndentCm}
+                onChange={(event) =>
+                  updateStyleParagraph(
+                    styleEditorKey,
+                    "firstLineIndentCm",
+                    Number(event.target.value)
+                  )
+                }
+              />
+            </div>
+            <div>
+              <label htmlFor="left-indent">Left indent (cm)</label>
+              <input
+                id="left-indent"
+                type="number"
+                step="0.01"
+                value={editingStyle.paragraph.leftIndentCm}
+                onChange={(event) =>
+                  updateStyleParagraph(styleEditorKey, "leftIndentCm", Number(event.target.value))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="right-indent">Right indent (cm)</label>
+              <input
+                id="right-indent"
+                type="number"
+                step="0.01"
+                value={editingStyle.paragraph.rightIndentCm}
+                onChange={(event) =>
+                  updateStyleParagraph(styleEditorKey, "rightIndentCm", Number(event.target.value))
+                }
+              />
+            </div>
+            <button
+              onClick={() =>
+                runAction("Sync preset to Word built-in styles", async () => {
+                  await syncPresetToWordBuiltInStyles(workingPreset);
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Sync to Word Styles
+            </button>
+          </div>
+
+          <div className="row inline">
+            <div>
+              <label htmlFor="caption-separator-figure">Figure separator</label>
+              <select
+                id="caption-separator-figure"
+                value={workingPreset.captions.figure.separator}
+                onChange={(event) =>
+                  updateCaptionSeparator("Figure", event.target.value as "." | ":" | "-")
+                }
+              >
+                <option value=".">.</option>
+                <option value=":">:</option>
+                <option value="-">-</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="caption-separator-table">Table separator</label>
+              <select
+                id="caption-separator-table"
+                value={workingPreset.captions.table.separator}
+                onChange={(event) =>
+                  updateCaptionSeparator("Table", event.target.value as "." | ":" | "-")
+                }
+              >
+                <option value=".">.</option>
+                <option value=":">:</option>
+                <option value="-">-</option>
+              </select>
+            </div>
+          </div>
+        </details>
+
+        <details className="card details-card">
+          <summary>Audit</summary>
+          <div className="actions">
+            <button
+              className="primary"
+              onClick={() =>
+                runAction("Audit document", async () => {
+                  const report = await auditDocumentBody(workingPreset.styles.body);
+                  setAuditReport(report);
+                  setNotice({
+                    type: "ok",
+                    text: `Audit complete. ${report.mismatches.length} mismatch(es) out of ${report.totalParagraphs} paragraph(s).`,
+                  });
+                })
+              }
+              disabled={!isWordReady || busyAction.length > 0}
+            >
+              Run Audit
+            </button>
+          </div>
+
+          {auditReport ? (
+            <div className="audit-list">
+              <div className="audit-item">
+                Audited body paragraphs: <strong>{auditReport.totalParagraphs}</strong> | Mismatches:
+                <strong> {auditReport.mismatches.length}</strong>
+              </div>
+              {auditReport.mismatches.slice(0, 20).map((item) => (
+                <div key={`${item.index}-${item.textPreview}`} className="audit-item">
+                  #{item.index} - {item.textPreview}
+                  <br />
+                  Issues: {item.reasons.join(", ")}
+                </div>
+              ))}
+              {auditReport.mismatches.length > 20 ? (
+                <div className="audit-item">Showing first 20 mismatches.</div>
+              ) : null}
+            </div>
+          ) : null}
+        </details>
+
+        <details className="card details-card">
+          <summary>Diagnostics</summary>
           <p>Capture paragraph-level failures for apply and heading actions.</p>
           <div className="row">
             <label>
@@ -380,7 +997,7 @@ export default function TaskpanePage() {
               Enable diagnostic mode
             </label>
           </div>
-          <div className="row inline">
+          <div className="row">
             <button
               onClick={() => {
                 const diagnostics = getLastOfficeDiagnostics();
@@ -404,14 +1021,19 @@ export default function TaskpanePage() {
           {diagnosticMode && lastDiagnostics ? (
             <div className="audit-list">
               <div className="audit-item">
-                Last action: <strong>{lastDiagnostics.operation}</strong> | Target: <strong>{lastDiagnostics.target}</strong> | Updated:
-                <strong> {lastDiagnostics.updated}</strong> | Failed: <strong>{lastDiagnostics.failed}</strong>
+                Last action: <strong>{lastDiagnostics.operation}</strong> | Target:
+                <strong> {lastDiagnostics.target}</strong> | Updated:
+                <strong> {lastDiagnostics.updated}</strong> | Failed:
+                <strong> {lastDiagnostics.failed}</strong>
               </div>
               {lastDiagnostics.batchError ? (
                 <div className="audit-item">Batch error: {lastDiagnostics.batchError}</div>
               ) : null}
               {lastDiagnostics.failures.slice(0, 10).map((item) => (
-                <div key={`${item.paragraphIndex}-${item.phase}-${item.statement ?? item.error}`} className="audit-item">
+                <div
+                  key={`${item.paragraphIndex}-${item.phase}-${item.statement ?? item.error}`}
+                  className="audit-item"
+                >
                   #{item.paragraphIndex} ({item.phase}) - {item.textPreview}
                   <br />
                   Error: {item.error}
@@ -423,679 +1045,36 @@ export default function TaskpanePage() {
               ) : null}
             </div>
           ) : null}
-        </section>
-
-        <div className="grid">
-          <section className="card">
-            <h2>Preset Manager</h2>
-            <p>Manage local presets and per-document active preset.</p>
-            <p>{PRESET_PACK_NOTICE}</p>
-
-            <div className="row">
-              <div>
-                <label htmlFor="preset-select">Preset</label>
-                <select
-                  id="preset-select"
-                  value={selectedPresetId}
-                  onChange={(event) => setSelectedPresetId(event.target.value)}
-                >
-                  {presets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="footer-note">
-                Selected preset type: <strong>{selectedPresetIsBuiltIn ? "Built-in template" : "Custom preset"}</strong>
-              </div>
-            </div>
-
-            <div className="row inline">
-              <button onClick={handleCreatePresetCopy}>Create Copy</button>
-              <button onClick={handleDeletePreset} disabled={selectedPresetIsBuiltIn}>
-                Delete Selected
-              </button>
-            </div>
-            <div className="row">
-              <button
-                onClick={() => {
-                  const reset = resetLocalPresetsToBuiltIns();
-                  setPresets(reset);
-                  setSelectedPresetId(reset[0]?.id ?? DEFAULT_PRESET.id);
-                  setNotice({ type: "ok", text: "Reset local library to built-in campus pack." });
-                }}
-              >
-                Reset to Built-In Campus Pack
-              </button>
-            </div>
-
-            <div className="row">
-              <div>
-                <label htmlFor="preset-name">Preset name</label>
-                <input
-                  id="preset-name"
-                  value={workingPreset.name}
-                  onChange={(event) =>
-                    setDraftPreset((previous) => {
-                      const source = previous ?? clonePreset(selectedPreset);
-                      source.name = event.target.value;
-                      return { ...source };
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="row inline">
-              <button onClick={handleSavePresetToLibrary}>Save to Local Library</button>
-              <button
-                onClick={() =>
-                  runAction("Save preset to document", async () => {
-                    await saveDocumentPreset(workingPreset);
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Save to This Document
-              </button>
-            </div>
-
-            <div className="row inline">
-              <button
-                onClick={() =>
-                  runAction("Load preset from document", async () => {
-                    const fromDoc = loadDocumentPreset();
-                    if (!fromDoc) {
-                      throw new Error("No preset found in this document.");
-                    }
-                    persistPreset(fromDoc, "Loaded preset from document.");
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Load from Document
-              </button>
-              <button
-                onClick={() => runAction("Clear document preset", clearDocumentPreset)}
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Clear Document Preset
-              </button>
-            </div>
-
-            <div className="row inline">
-              <button
-                onClick={() => downloadFile("skripsi-presets.json", exportPresetsJson())}
-                disabled={busyAction.length > 0}
-              >
-                Export JSON
-              </button>
-              <label style={{ marginBottom: 0 }}>
-                <span style={{ display: "block", marginBottom: 4 }}>Import file</span>
-                <input type="file" accept="application/json,.json" onChange={handleImportFile} />
-              </label>
-            </div>
-
-            <div className="row">
-              <label htmlFor="import-json">Import JSON text</label>
-              <textarea
-                id="import-json"
-                value={importText}
-                onChange={(event) => setImportText(event.target.value)}
-                placeholder="Paste preset JSON array here"
-              />
-              <button
-                onClick={() => {
-                  try {
-                    const next = importPresetsJson(importText);
-                    setPresets(next);
-                    setSelectedPresetId(next[0]?.id ?? DEFAULT_PRESET.id);
-                    setNotice({ type: "ok", text: "Presets imported from JSON." });
-                  } catch (error: unknown) {
-                    setNotice({ type: "error", text: `Import failed: ${extractErrorMessage(error)}` });
-                  }
-                }}
-              >
-                Import Presets
-              </button>
-            </div>
-          </section>
-
-          <section className="card">
-            <h2>Style Editor</h2>
-            <p>Customize each preset style and map it to Word built-in styles for consistent TOC behavior.</p>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="style-editor-key">Editing style</label>
-                <select
-                  id="style-editor-key"
-                  value={styleEditorKey}
-                  onChange={(event) => setStyleEditorKey(event.target.value as PresetStyleKey)}
-                >
-                  {STYLE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="footer-note">
-                Word built-in mapping: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong>
-                <br />
-                Detected fonts: <strong>{availableFonts.length}</strong>
-                <br />
-                <button
-                  onClick={() => {
-                    void refreshDetectedFonts(workingPreset);
-                  }}
-                  disabled={fontScanBusy || busyAction.length > 0}
-                >
-                  {fontScanBusy ? "Scanning Fonts..." : "Rescan Installed Fonts"}
-                </button>
-              </div>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="font-name">Font</label>
-                <select
-                  id="font-name"
-                  value={editingStyle.text.fontName}
-                  onChange={(event) =>
-                    updateStyleText(styleEditorKey, "fontName", event.target.value)
-                  }
-                >
-                  {availableFonts.map((fontName) => (
-                    <option key={fontName} value={fontName}>
-                      {fontName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="font-size">Font size (pt)</label>
-                <input
-                  id="font-size"
-                  type="number"
-                  value={editingStyle.text.fontSizePt}
-                  onChange={(event) =>
-                    updateStyleText(styleEditorKey, "fontSizePt", Number(event.target.value))
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="row inline">
-              <label style={{ marginBottom: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={editingStyle.text.bold}
-                  onChange={(event) =>
-                    updateStyleText(styleEditorKey, "bold", event.target.checked)
-                  }
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                Bold
-              </label>
-              <label style={{ marginBottom: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={editingStyle.text.italic}
-                  onChange={(event) =>
-                    updateStyleText(styleEditorKey, "italic", event.target.checked)
-                  }
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                Italic
-              </label>
-            </div>
-
-            <div className="row inline">
-              <label style={{ marginBottom: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={editingStyle.text.underline === "Single"}
-                  onChange={(event) =>
-                    updateStyleText(
-                      styleEditorKey,
-                      "underline",
-                      event.target.checked ? "Single" : "None"
-                    )
-                  }
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                Underline
-              </label>
-              <label style={{ marginBottom: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={editingStyle.text.allCaps}
-                  onChange={(event) =>
-                    updateStyleText(styleEditorKey, "allCaps", event.target.checked)
-                  }
-                  style={{ width: "auto", marginRight: 8 }}
-                />
-                All Caps
-              </label>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="alignment">Alignment</label>
-                <select
-                  id="alignment"
-                  value={editingStyle.paragraph.alignment}
-                  onChange={(event) =>
-                    updateStyleParagraph(styleEditorKey, "alignment", event.target.value as Alignment)
-                  }
-                >
-                  <option value="Left">Left</option>
-                  <option value="Centered">Centered</option>
-                  <option value="Right">Right</option>
-                  <option value="Justified">Justified</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="line-spacing">Line spacing (pt)</label>
-                <input
-                  id="line-spacing"
-                  type="number"
-                  value={editingStyle.paragraph.lineSpacingPt}
-                  onChange={(event) =>
-                    updateStyleParagraph(styleEditorKey, "lineSpacingPt", Number(event.target.value))
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="space-before">Space before (pt)</label>
-                <input
-                  id="space-before"
-                  type="number"
-                  value={editingStyle.paragraph.spaceBeforePt}
-                  onChange={(event) =>
-                    updateStyleParagraph(styleEditorKey, "spaceBeforePt", Number(event.target.value))
-                  }
-                />
-              </div>
-              <div>
-                <label htmlFor="space-after">Space after (pt)</label>
-                <input
-                  id="space-after"
-                  type="number"
-                  value={editingStyle.paragraph.spaceAfterPt}
-                  onChange={(event) =>
-                    updateStyleParagraph(styleEditorKey, "spaceAfterPt", Number(event.target.value))
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="first-line-indent">First line indent (cm)</label>
-                <input
-                  id="first-line-indent"
-                  type="number"
-                  step="0.01"
-                  value={editingStyle.paragraph.firstLineIndentCm}
-                  onChange={(event) =>
-                    updateStyleParagraph(
-                      styleEditorKey,
-                      "firstLineIndentCm",
-                      Number(event.target.value)
-                    )
-                  }
-                />
-              </div>
-              <div>
-                <label htmlFor="left-indent">Left indent (cm)</label>
-                <input
-                  id="left-indent"
-                  type="number"
-                  step="0.01"
-                  value={editingStyle.paragraph.leftIndentCm}
-                  onChange={(event) =>
-                    updateStyleParagraph(styleEditorKey, "leftIndentCm", Number(event.target.value))
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="right-indent">Right indent (cm)</label>
-                <input
-                  id="right-indent"
-                  type="number"
-                  step="0.01"
-                  value={editingStyle.paragraph.rightIndentCm}
-                  onChange={(event) =>
-                    updateStyleParagraph(styleEditorKey, "rightIndentCm", Number(event.target.value))
-                  }
-                />
-              </div>
-              <button
-                onClick={() =>
-                  runAction("Sync preset to Word built-in styles", async () => {
-                    await syncPresetToWordBuiltInStyles(workingPreset);
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Sync Preset to Word Styles
-              </button>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="caption-separator-figure">Figure separator</label>
-                <select
-                  id="caption-separator-figure"
-                  value={workingPreset.captions.figure.separator}
-                  onChange={(event) =>
-                    updateCaptionSeparator("Figure", event.target.value as "." | ":" | "-")
-                  }
-                >
-                  <option value=".">.</option>
-                  <option value=":">:</option>
-                  <option value="-">-</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="caption-separator-table">Table separator</label>
-                <select
-                  id="caption-separator-table"
-                  value={workingPreset.captions.table.separator}
-                  onChange={(event) =>
-                    updateCaptionSeparator("Table", event.target.value as "." | ":" | "-")
-                  }
-                >
-                  <option value=".">.</option>
-                  <option value=":">:</option>
-                  <option value="-">-</option>
-                </select>
-              </div>
-            </div>
-            <p className="footer-note">
-              Caption Figure and Caption Table share Word built-in style `Caption`. Keep both caption
-              presets similar when you need perfect built-in style synchronization.
-            </p>
-          </section>
-
-          <section className="card">
-            <h2>Formatting Actions</h2>
-            <p>Apply styles with built-in registration, run chapter-aware autofix, or enforce heading levels.</p>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="apply-target">Target</label>
-                <select
-                  id="apply-target"
-                  value={applyTarget}
-                  onChange={(event) => setApplyTarget(event.target.value as ApplyTarget)}
-                >
-                  <option value="selection">Selection</option>
-                  <option value="document">Whole document</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="style-key">Style</label>
-                <select
-                  id="style-key"
-                  value={styleKey}
-                  onChange={(event) => setStyleKey(event.target.value as PresetStyleKey)}
-                >
-                  {STYLE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="actions">
-              <button
-                className="primary"
-                onClick={() =>
-                  runAction("Apply style preset", async () => {
-                    const count = await applyStylePresetToTarget(
-                      styleKey,
-                      workingPreset.styles[styleKey],
-                      applyTarget
-                    );
-                    setNotice({
-                      type: "ok",
-                      text: `Apply style preset completed. Updated ${count} paragraph(s).`,
-                    });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Apply Style Preset
-              </button>
-              <button
-                onClick={() =>
-                  runAction("Chapter-aware autofix", async () => {
-                    const summary = await applyChapterAwareFormatting(workingPreset, applyTarget);
-                    setNotice({
-                      type: "ok",
-                      text:
-                        `Chapter-aware autofix completed on ${summary.total} paragraph(s). ` +
-                        `H1:${summary.heading1}, H2:${summary.heading2}, H3:${summary.heading3}, ` +
-                        `Body:${summary.body}, FigCaption:${summary.captionFigure}, ` +
-                        `TableCaption:${summary.captionTable}, Quote:${summary.quote}.`,
-                    });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Chapter-Aware Autofix
-              </button>
-            </div>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="heading-level">Heading level</label>
-                <select
-                  id="heading-level"
-                  value={headingLevel}
-                  onChange={(event) => setHeadingLevel(Number(event.target.value) as 1 | 2 | 3)}
-                >
-                  <option value={1}>Heading 1</option>
-                  <option value={2}>Heading 2</option>
-                  <option value={3}>Heading 3</option>
-                </select>
-              </div>
-              <button
-                onClick={() =>
-                  runAction("Apply heading style", async () => {
-                    const count = await applyHeadingStyle(headingLevel, applyTarget);
-                    setNotice({
-                      type: "ok",
-                      text: `Apply heading style completed. Updated ${count} paragraph(s).`,
-                    });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Enforce Heading
-              </button>
-            </div>
-          </section>
-
-          <section className="card">
-            <h2>Captions + TOC</h2>
-            <p>Insert captions and control TOC/list fields.</p>
-
-            <div className="row inline">
-              <div>
-                <label htmlFor="caption-label">Caption label</label>
-                <select
-                  id="caption-label"
-                  value={captionLabel}
-                  onChange={(event) => setCaptionLabel(event.target.value as CaptionLabel)}
-                >
-                  <option value="Figure">Figure</option>
-                  <option value="Table">Table</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="caption-title">Caption title</label>
-                <input
-                  id="caption-title"
-                  value={captionTitle}
-                  onChange={(event) => setCaptionTitle(event.target.value)}
-                  placeholder="example: Architecture overview"
-                />
-              </div>
-            </div>
-
-            <div className="actions">
-              <button
-                className="primary"
-                onClick={() =>
-                  runAction("Insert caption", async () => {
-                    if (!captionTitle.trim()) {
-                      throw new Error("Caption title cannot be empty.");
-                    }
-
-                    await insertCaption({
-                      label: captionLabel,
-                      separator: captionPreset.separator,
-                      title: captionTitle,
-                      titleCase: captionPreset.titleCase,
-                      captionStyle:
-                        captionLabel === "Figure"
-                          ? workingPreset.styles.captionFigure
-                          : workingPreset.styles.captionTable,
-                    });
-                    setCaptionTitle("");
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Insert Caption
-              </button>
-              <button
-                onClick={() => runAction("Insert TOC at selection", insertTocAtSelection)}
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Insert TOC Field
-              </button>
-              <button
-                onClick={() => runAction("Insert list of figures", insertListOfFiguresAtSelection)}
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Insert List of Figures
-              </button>
-              <button
-                onClick={() => runAction("Insert list of tables", insertListOfTablesAtSelection)}
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Insert List of Tables
-              </button>
-              <button
-                onClick={() =>
-                  runAction("Update TOC fields", async () => {
-                    const count = await updateTocFields();
-                    setNotice({ type: "ok", text: `Updated ${count} TOC field(s).` });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Update TOC
-              </button>
-              <button
-                onClick={() =>
-                  runAction("Update list of figures fields", async () => {
-                    const count = await updateListOfFiguresFields();
-                    setNotice({ type: "ok", text: `Updated ${count} list-of-figures field(s).` });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Update List of Figures
-              </button>
-              <button
-                onClick={() =>
-                  runAction("Update list of tables fields", async () => {
-                    const count = await updateListOfTablesFields();
-                    setNotice({ type: "ok", text: `Updated ${count} list-of-tables field(s).` });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Update List of Tables
-              </button>
-              <button
-                onClick={() =>
-                  runAction("Update all fields", async () => {
-                    const count = await updateAllFields();
-                    setNotice({ type: "ok", text: `Updated ${count} field(s) in document body.` });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-              >
-                Update All Fields
-              </button>
-            </div>
-          </section>
-
-          <section className="card">
-            <h2>Audit</h2>
-            <p>Audit body-like paragraphs against body style to review remaining mismatches.</p>
-
-            <div className="actions">
-              <button
-                className="primary"
-                onClick={() =>
-                  runAction("Audit document", async () => {
-                    const report = await auditDocumentBody(workingPreset.styles.body);
-                    setAuditReport(report);
-                    setNotice({
-                      type: "ok",
-                      text: `Audit complete. ${report.mismatches.length} mismatch(es) out of ${report.totalParagraphs} paragraph(s).`,
-                    });
-                  })
-                }
-                disabled={!isWordReady || busyAction.length > 0}
-              >
-                Run Audit
-              </button>
-            </div>
-
-            {auditReport ? (
-              <div className="audit-list">
-                <div className="audit-item">
-                  Audited body paragraphs: <strong>{auditReport.totalParagraphs}</strong> | Mismatches: <strong>{auditReport.mismatches.length}</strong>
-                </div>
-                {auditReport.mismatches.slice(0, 20).map((item) => (
-                  <div key={`${item.index}-${item.textPreview}`} className="audit-item">
-                    #{item.index} - {item.textPreview}
-                    <br />
-                    Issues: {item.reasons.join(", ")}
-                  </div>
-                ))}
-                {auditReport.mismatches.length > 20 ? (
-                  <div className="audit-item">Showing first 20 mismatches.</div>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-        </div>
+        </details>
 
         <section className={`status ${notice.type}`}>
           {busyAction ? `Running: ${busyAction}...` : notice.text}
         </section>
 
+        <div className="sticky-bar">
+          <button
+            className="primary"
+            onClick={() =>
+              runAction("Apply style preset", async () => {
+                const count = await applyStylePresetToTarget(
+                  styleKey,
+                  workingPreset.styles[styleKey],
+                  applyTarget
+                );
+                setNotice({
+                  type: "ok",
+                  text: `Apply style preset completed. Updated ${count} paragraph(s).`,
+                });
+              })
+            }
+            disabled={!isWordReady || busyAction.length > 0}
+          >
+            Apply Style
+          </button>
+        </div>
+
         <p className="footer-note">
-          Note: Caption and TOC field features need WordApi 1.5 support in your Word host.
+          Caption and TOC fields require WordApi 1.5 support in your Word host.
         </p>
       </div>
     </main>
