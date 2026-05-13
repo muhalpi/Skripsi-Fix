@@ -1,4 +1,4 @@
-# Bug Report Template - Skripsi Helper
+# Bug Report Template - Skripsi-Fix
 
 ## 1. Summary
 

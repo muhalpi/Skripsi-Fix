@@ -1,7 +1,7 @@
 ﻿import type { SkripsiPresetV1 } from "@/types/preset";
 import { validatePreset } from "@/lib/validation/presetValidation";
 
-const DOC_PRESET_KEY = "skripsi-helper.document.active-preset.v1";
+const DOC_PRESET_KEY = "skripsi-fix.document.active-preset.v1";
 
 function ensureOfficeDocumentSettings(): Office.Settings {
   if (typeof Office === "undefined" || !Office.context?.document?.settings) {

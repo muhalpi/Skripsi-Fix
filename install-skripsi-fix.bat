@@ -25,7 +25,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [OK] Skripsi Helper berhasil didaftarkan.
+echo [OK] Skripsi-Fix berhasil didaftarkan.
 echo Tutup semua Word, lalu buka Word lagi.
 echo Jika add-in belum muncul, restart Windows sekali.
 pause

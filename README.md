@@ -1,4 +1,4 @@
-# Skripsi Helper Word Add-in (No Auth, No DB)
+# Skripsi-Fix Word Add-in (No Auth, No DB)
 
 Word task-pane add-in for skripsi formatting presets, caption workflows, TOC/list updates, and document audit.
 

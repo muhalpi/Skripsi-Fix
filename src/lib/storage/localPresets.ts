@@ -5,7 +5,7 @@ import {
 } from "@/lib/constants/campusPresetPack";
 import { validatePreset } from "@/lib/validation/presetValidation";
 
-const STORAGE_KEY = "skripsi-helper.local-presets.v1";
+const STORAGE_KEY = "skripsi-fix.local-presets.v1";
 
 function getStorageKey(): string {
   try {

@@ -1,6 +1,6 @@
-# Skripsi Helper QA Checklist
+# Skripsi-Fix QA Checklist
 
-Test document: `test-assets/Skripsi-Helper-Dummy-Test-Doc.docx`
+Test document: `test-assets/Skripsi-Fix-Dummy-Test-Doc.docx`
 
 ## 1. Startup and Runtime
 

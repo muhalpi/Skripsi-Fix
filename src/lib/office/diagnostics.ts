@@ -19,7 +19,7 @@ export type OfficeActionDiagnostics = {
   timestamp: string;
 };
 
-const DIAGNOSTIC_MODE_KEY = "skripsi-helper.diagnostic-mode.v1";
+const DIAGNOSTIC_MODE_KEY = "skripsi-fix.diagnostic-mode.v1";
 let lastDiagnostics: OfficeActionDiagnostics | null = null;
 
 function getStorage(): Storage | null {

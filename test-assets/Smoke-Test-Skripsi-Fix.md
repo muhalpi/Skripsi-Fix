@@ -1,6 +1,6 @@
-# Skripsi Helper Smoke Test (5-10 Minutes)
+# Skripsi-Fix Smoke Test (5-10 Minutes)
 
-Base doc: `test-assets/Skripsi-Helper-Dummy-Test-Doc.docx`
+Base doc: `test-assets/Skripsi-Fix-Dummy-Test-Doc.docx`
 
 ## A. Launch Health
 

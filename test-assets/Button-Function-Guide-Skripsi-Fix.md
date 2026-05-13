@@ -1,4 +1,4 @@
-# Skripsi Helper Button Function Guide
+# Skripsi-Fix Button Function Guide
 
 This guide explains what each button does, when to use it, and what result to expect.
 

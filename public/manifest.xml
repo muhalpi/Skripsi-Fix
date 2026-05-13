@@ -6,9 +6,9 @@
            xsi:type="TaskPaneApp">
   <Id>5d41fb96-523e-4ffd-b177-2c7b56ccd8a3</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Skripsi Helper</ProviderName>
+  <ProviderName>Skripsi-Fix</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Skripsi Helper"/>
+  <DisplayName DefaultValue="Skripsi-Fix"/>
   <Description DefaultValue="Apply skripsi presets, captions, and TOC helpers in Word."/>
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png"/>
@@ -83,12 +83,12 @@
         <bt:Url id="Cmd.Url" DefaultValue="https://localhost:3000/taskpane"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Skripsi Helper"/>
-        <bt:String id="Skripsi.GroupLabel" DefaultValue="Skripsi Tools"/>
-        <bt:String id="Skripsi.OpenPane.Label" DefaultValue="Open Skripsi Helper"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Skripsi-Fix"/>
+        <bt:String id="Skripsi.GroupLabel" DefaultValue="Skripsi-Fix Tools"/>
+        <bt:String id="Skripsi.OpenPane.Label" DefaultValue="Open Skripsi-Fix"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Use Skripsi Helper to apply thesis formatting presets and manage captions."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Use Skripsi-Fix to apply thesis formatting presets and manage captions."/>
         <bt:String id="Skripsi.OpenPane.Tip" DefaultValue="Open task pane for text presets, caption tools, and TOC controls."/>
       </bt:LongStrings>
     </Resources>

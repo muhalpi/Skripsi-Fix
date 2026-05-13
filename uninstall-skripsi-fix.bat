@@ -20,14 +20,14 @@ powershell -NoProfile -Command ^
   "if ($removed -eq 0) { exit 2 } else { exit 0 }"
 
 if errorlevel 2 (
-  echo [INFO] Tidak ada entry sideload Skripsi Helper yang cocok untuk dihapus.
+  echo [INFO] Tidak ada entry sideload Skripsi-Fix yang cocok untuk dihapus.
 ) else (
   if errorlevel 1 (
     echo [ERROR] Gagal menghapus entry sideload.
     pause
     exit /b 1
   ) else (
-    echo [OK] Entry sideload Skripsi Helper sudah dihapus.
+    echo [OK] Entry sideload Skripsi-Fix sudah dihapus.
     echo Tutup semua Word, lalu buka Word lagi.
   )
 )

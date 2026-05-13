@@ -361,7 +361,7 @@ export default function TaskpanePage() {
         </section>
 
         <section className="card">
-          <h1 className="panel-title">Skripsi Helper</h1>
+          <h1 className="panel-title">Skripsi-Fix</h1>
           <p className="panel-subtitle">Kontrol ringkas untuk task pane Word.</p>
 
           <div className="row">
@@ -1009,7 +1009,7 @@ export default function TaskpanePage() {
 
                 setLastDiagnostics(diagnostics);
                 downloadFile(
-                  "skripsi-helper-diagnostic-report.json",
+                  "skripsi-fix-diagnostic-report.json",
                   JSON.stringify(diagnostics, null, 2)
                 );
                 setNotice({ type: "ok", text: "Laporan diagnostik berhasil diekspor." });
