@@ -1,31 +1,22 @@
-﻿"use client";
+"use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_PRESET } from "@/lib/constants/defaultPreset";
-import { PRESET_PACK_NOTICE } from "@/lib/constants/campusPresetPack";
-import {
-  deleteLocalPreset,
-  exportPresetsJson,
-  isBuiltInPresetId,
-  importPresetsJson,
-  loadLocalPresets,
-  resetLocalPresetsToBuiltIns,
-  upsertLocalPreset,
-} from "@/lib/storage/localPresets";
-import {
-  clearDocumentPreset,
-  loadDocumentPreset,
-  saveDocumentPreset,
-} from "@/lib/storage/documentSettings";
-import { waitForOfficeReady, isRequirementSetSupported } from "@/lib/office/runtime";
+import { insertCaption } from "@/lib/office/captions";
 import { applyStylePresetToTarget } from "@/lib/office/formatter";
 import { applyHeadingStyle } from "@/lib/office/headings";
-import { applyChapterAwareFormatting } from "@/lib/office/chapterAware";
 import {
-  getBuiltInStyleLabel,
-  syncPresetToWordBuiltInStyles,
-} from "@/lib/office/styleRegistry";
-import { insertCaption } from "@/lib/office/captions";
+  applyAllLevelSettingsToSelectionList,
+  applyLevelSettingsToSelectionList,
+  getLevelFormatPreview,
+  type FollowNumberWith,
+  type LinkedHeadingStyle,
+  type ListApplyScope,
+  type ListLevelAlignment,
+  type ListNumberingStyle,
+  type MultiLevelLevelSettings,
+} from "@/lib/office/multilevel";
+import { isRequirementSetSupported, waitForOfficeReady } from "@/lib/office/runtime";
 import {
   insertListOfFiguresAtSelection,
   insertListOfTablesAtSelection,
@@ -35,36 +26,9 @@ import {
   updateListOfTablesFields,
   updateTocFields,
 } from "@/lib/office/toc";
-import { auditDocumentBody } from "@/lib/office/audit";
-import {
-  getDiagnosticModeEnabled,
-  getLastOfficeDiagnostics,
-  setDiagnosticModeEnabled as persistDiagnosticMode,
-  summarizeDiagnostics,
-  type OfficeActionDiagnostics,
-} from "@/lib/office/diagnostics";
-import {
-  COMMON_FONT_CANDIDATES,
-  detectInstalledFonts,
-} from "@/lib/utils/fontDetection";
-import type {
-  Alignment,
-  ApplyTarget,
-  AuditReport,
-  CaptionLabel,
-  PresetStyleKey,
-  SkripsiPresetV1,
-} from "@/types/preset";
+import type { ApplyTarget, CaptionLabel, PresetStyleKey } from "@/types/preset";
 
-const STYLE_OPTIONS: Array<{ value: PresetStyleKey; label: string }> = [
-  { value: "body", label: "Teks Utama" },
-  { value: "heading1", label: "Judul 1" },
-  { value: "heading2", label: "Judul 2" },
-  { value: "heading3", label: "Judul 3" },
-  { value: "quote", label: "Kutipan" },
-  { value: "captionFigure", label: "Keterangan Gambar" },
-  { value: "captionTable", label: "Keterangan Tabel" },
-];
+type TabKey = "multilevel" | "heading" | "caption" | "toc";
 
 type Notice = {
   type: "info" | "ok" | "error";
@@ -78,29 +42,64 @@ type RuntimeState = {
   details: string;
 };
 
-function clonePreset(preset: SkripsiPresetV1): SkripsiPresetV1 {
-  return JSON.parse(JSON.stringify(preset)) as SkripsiPresetV1;
-}
+const TAB_ITEMS: Array<{ key: TabKey; label: string }> = [
+  { key: "multilevel", label: "Multilevel" },
+  { key: "heading", label: "Judul & Gaya" },
+  { key: "caption", label: "Keterangan" },
+  { key: "toc", label: "Daftar Isi" },
+];
 
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
+const STYLE_OPTIONS: Array<{ value: PresetStyleKey; label: string }> = [
+  { value: "body", label: "Teks Utama" },
+  { value: "heading1", label: "Judul 1" },
+  { value: "heading2", label: "Judul 2" },
+  { value: "heading3", label: "Judul 3" },
+  { value: "quote", label: "Kutipan" },
+  { value: "captionFigure", label: "Gaya Keterangan Gambar" },
+  { value: "captionTable", label: "Gaya Keterangan Tabel" },
+];
 
-function createPresetId(name: string): string {
-  const slug = slugify(name) || "preset";
-  return `${slug}-${Date.now()}`;
-}
+const NUMBER_STYLE_OPTIONS: Array<{ value: ListNumberingStyle; label: string }> = [
+  { value: "UpperRoman", label: "I, II, III, ..." },
+  { value: "Arabic", label: "1, 2, 3, ..." },
+  { value: "UpperLetter", label: "A, B, C, ..." },
+  { value: "LowerLetter", label: "a, b, c, ..." },
+  { value: "LowerRoman", label: "i, ii, iii, ..." },
+  { value: "None", label: "Tanpa nomor" },
+];
 
-function getPresetFontNames(preset: SkripsiPresetV1): string[] {
-  const names = STYLE_OPTIONS.map((item) => preset.styles[item.value].text.fontName.trim()).filter(
-    (value) => value.length > 0
-  );
-  return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
-}
+const ALIGNMENT_OPTIONS: Array<{ value: ListLevelAlignment; label: string }> = [
+  { value: "Left", label: "Kiri" },
+  { value: "Centered", label: "Tengah" },
+  { value: "Right", label: "Kanan" },
+];
+
+const FOLLOW_NUMBER_OPTIONS: Array<{ value: FollowNumberWith; label: string }> = [
+  { value: "TrailingTab", label: "Karakter tab" },
+  { value: "TrailingSpace", label: "Spasi" },
+  { value: "TrailingNone", label: "Tanpa pemisah" },
+];
+
+const APPLY_CHANGES_OPTIONS: Array<{ value: ListApplyScope; label: string }> = [
+  { value: "WholeList", label: "Seluruh daftar" },
+  { value: "ThisPointForward", label: "Dari titik ini ke akhir daftar" },
+  { value: "Selection", label: "Hanya paragraf terpilih" },
+];
+
+const LINKED_STYLE_OPTIONS: Array<{ value: LinkedHeadingStyle; label: string }> = [
+  { value: "None", label: "(Tanpa gaya)" },
+  { value: "Heading1", label: "Judul 1" },
+  { value: "Heading2", label: "Judul 2" },
+  { value: "Heading3", label: "Judul 3" },
+  { value: "Heading4", label: "Judul 4" },
+  { value: "Heading5", label: "Judul 5" },
+  { value: "Heading6", label: "Judul 6" },
+  { value: "Heading7", label: "Judul 7" },
+  { value: "Heading8", label: "Judul 8" },
+  { value: "Heading9", label: "Judul 9" },
+];
+
+const LEVEL_INDICES = Array.from({ length: 9 }, (_, index) => index);
 
 function extractErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -109,17 +108,258 @@ function extractErrorMessage(error: unknown): string {
   return "Terjadi kesalahan yang tidak diketahui.";
 }
 
-function downloadFile(filename: string, content: string): void {
-  const blob = new Blob([content], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+function buildNumberFormatPattern(
+  levelIndex: number,
+  includeFromLevelIndex: number | null,
+  levelSeparator: string,
+  prefixText: string,
+  suffixText: string
+): string {
+  const normalizedLevel = Math.max(0, Math.min(8, levelIndex));
+  const includeFrom =
+    includeFromLevelIndex === null
+      ? normalizedLevel
+      : Math.max(0, Math.min(normalizedLevel, includeFromLevelIndex));
+  const separator = levelSeparator.length > 0 ? levelSeparator : ".";
+
+  const levelTokens: string[] = [];
+  for (let current = includeFrom; current <= normalizedLevel; current += 1) {
+    levelTokens.push(`<L${current + 1}>`);
+  }
+
+  const numberingCore = levelTokens.join(separator);
+  return `${prefixText}${numberingCore}${suffixText}`;
+}
+
+function toRoman(value: number): string {
+  if (value <= 0) {
+    return String(value);
+  }
+
+  const table: Array<{ value: number; symbol: string }> = [
+    { value: 1000, symbol: "M" },
+    { value: 900, symbol: "CM" },
+    { value: 500, symbol: "D" },
+    { value: 400, symbol: "CD" },
+    { value: 100, symbol: "C" },
+    { value: 90, symbol: "XC" },
+    { value: 50, symbol: "L" },
+    { value: 40, symbol: "XL" },
+    { value: 10, symbol: "X" },
+    { value: 9, symbol: "IX" },
+    { value: 5, symbol: "V" },
+    { value: 4, symbol: "IV" },
+    { value: 1, symbol: "I" },
+  ];
+
+  let remaining = value;
+  let result = "";
+  for (const item of table) {
+    while (remaining >= item.value) {
+      result += item.symbol;
+      remaining -= item.value;
+    }
+  }
+  return result;
+}
+
+function toAlphabetic(value: number): string {
+  if (value <= 0) {
+    return String(value);
+  }
+
+  let number = value;
+  let result = "";
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    number = Math.floor((number - 1) / 26);
+  }
+  return result;
+}
+
+function toPreviewNumber(style: ListNumberingStyle, value: number): string {
+  const normalized = Math.max(1, Number.isFinite(value) ? Math.floor(value) : 1);
+  if (style === "UpperRoman") {
+    return toRoman(normalized);
+  }
+  if (style === "LowerRoman") {
+    return toRoman(normalized).toLowerCase();
+  }
+  if (style === "UpperLetter") {
+    return toAlphabetic(normalized);
+  }
+  if (style === "LowerLetter") {
+    return toAlphabetic(normalized).toLowerCase();
+  }
+  if (style === "None") {
+    return "";
+  }
+  return String(normalized);
+}
+
+function getLinkedStylePreviewLabel(linkedStyle: LinkedHeadingStyle): string {
+  if (linkedStyle === "None") {
+    return "Paragraf";
+  }
+  return `Judul ${linkedStyle.replace("Heading", "")}`;
+}
+
+function getPatternFromSettings(settings: MultiLevelLevelSettings): string {
+  const manualPattern = settings.numberFormatPattern.trim();
+  if (manualPattern.length > 0) {
+    return settings.numberFormatPattern;
+  }
+  return buildNumberFormatPattern(
+    settings.levelIndex,
+    settings.includeFromLevelIndex,
+    settings.levelSeparator,
+    settings.prefixText,
+    settings.suffixText
+  );
+}
+
+function buildRealLevelPreview(
+  settings: MultiLevelLevelSettings,
+  allSettings: MultiLevelLevelSettings[]
+): string {
+  const maxLevelIndex = Math.max(0, Math.min(8, settings.levelIndex));
+  const pattern = getPatternFromSettings(settings);
+  const baseText = pattern.replace(/<L([1-9])>/gi, (_match, rawLevel) => {
+    const tokenLevelIndex = Number(rawLevel) - 1;
+    if (!Number.isFinite(tokenLevelIndex) || tokenLevelIndex < 0 || tokenLevelIndex > maxLevelIndex) {
+      return "";
+    }
+
+    const tokenLevelSettings = allSettings[tokenLevelIndex] ?? settings;
+    return toPreviewNumber(tokenLevelSettings.numberStyle, tokenLevelSettings.startAt);
+  });
+
+  if (settings.followNumberWith === "TrailingSpace") {
+    return `${baseText} `;
+  }
+  if (settings.followNumberWith === "TrailingTab") {
+    return `${baseText}    `;
+  }
+  return baseText;
+}
+
+const PREVIEW_PX_PER_CM = 96 / 2.54;
+const PREVIEW_NUMBER_CHAR_PX = 6.6;
+const PREVIEW_NUMBER_GAP_PX = 8;
+
+function toPreviewPx(cm: number): number {
+  if (!Number.isFinite(cm)) {
+    return 0;
+  }
+  return Math.max(0, cm) * PREVIEW_PX_PER_CM;
+}
+
+function toCssNumberAlign(alignment: ListLevelAlignment): "left" | "center" | "right" {
+  if (alignment === "Centered") {
+    return "center";
+  }
+  if (alignment === "Right") {
+    return "right";
+  }
+  return "left";
+}
+
+function formatLocalizedDecimalInput(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return String(value).replace(".", ",");
+}
+
+function tryParseNonNegativeDecimalInput(rawValue: string): number | null {
+  const normalized = rawValue.trim().replace(",", ".");
+  if (normalized.length === 0) {
+    return null;
+  }
+  if (!/^(?:\d+|\d+\.\d*|\.\d+)$/.test(normalized)) {
+    return null;
+  }
+  const parsedValue = Number(normalized);
+  if (!Number.isFinite(parsedValue)) {
+    return null;
+  }
+  return Math.max(0, parsedValue);
+}
+
+function parsePositiveIntegerInput(rawValue: string, fallback: number, minValue = 1): number {
+  const normalized = rawValue.trim().replace(",", ".");
+  if (normalized.length === 0) {
+    return fallback;
+  }
+  const parsedValue = Number(normalized);
+  if (!Number.isFinite(parsedValue)) {
+    return fallback;
+  }
+  return Math.max(minValue, Math.floor(parsedValue));
+}
+
+function createDefaultLevelSettings(levelIndex: number): MultiLevelLevelSettings {
+  const normalizedLevel = Math.max(0, Math.min(8, levelIndex));
+  const headingLevel = normalizedLevel + 1;
+
+  const linkedStyle: LinkedHeadingStyle =
+    headingLevel <= 9 ? (`Heading${headingLevel}` as LinkedHeadingStyle) : "None";
+  const includeFromLevelIndex = normalizedLevel === 0 ? null : 0;
+  const levelSeparator = ".";
+  const prefixText = normalizedLevel === 0 ? "BAB " : "";
+  const suffixText = "";
+
+  return {
+    levelIndex: normalizedLevel,
+    numberStyle: normalizedLevel === 0 ? "UpperRoman" : "Arabic",
+    includeFromLevelIndex,
+    levelSeparator,
+    prefixText,
+    suffixText,
+    numberFormatPattern: buildNumberFormatPattern(
+      normalizedLevel,
+      includeFromLevelIndex,
+      levelSeparator,
+      prefixText,
+      suffixText
+    ),
+    startAt: 1,
+    alignment: "Left",
+    alignedAtCm: 0,
+    textIndentCm: 0.63,
+    followNumberWith: "TrailingTab",
+    addTabStopAt: false,
+    tabStopAtCm: 0.63,
+    legalStyleNumbering: false,
+    restartListAfterLevelIndex: null,
+    linkedStyle,
+  };
+}
+
+function usesAdvancedDesktopOptions(settings: MultiLevelLevelSettings): boolean {
+  return (
+    settings.followNumberWith !== "TrailingTab" ||
+    (settings.followNumberWith === "TrailingTab" && settings.addTabStopAt) ||
+    settings.legalStyleNumbering ||
+    settings.restartListAfterLevelIndex !== null
+  );
 }
 
 export default function TaskpanePage() {
+  const [activeTab, setActiveTab] = useState<TabKey>("multilevel");
+  const [applyTarget, setApplyTarget] = useState<ApplyTarget>("selection");
+  const [styleKey, setStyleKey] = useState<PresetStyleKey>("body");
+  const [headingLevel, setHeadingLevel] = useState<1 | 2 | 3>(1);
+  const [captionLabel, setCaptionLabel] = useState<CaptionLabel>("Figure");
+  const [captionTitle, setCaptionTitle] = useState<string>("");
+
+  const [selectedLevelIndex, setSelectedLevelIndex] = useState<number>(0);
+  const [applyChangesTo, setApplyChangesTo] = useState<ListApplyScope>("WholeList");
+  const [levelSettings, setLevelSettings] = useState<MultiLevelLevelSettings[]>(() =>
+    LEVEL_INDICES.map((levelIndex) => createDefaultLevelSettings(levelIndex))
+  );
+
   const [runtime, setRuntime] = useState<RuntimeState>({
     isOfficeReady: false,
     isWordHost: false,
@@ -129,34 +369,15 @@ export default function TaskpanePage() {
   const [busyAction, setBusyAction] = useState<string>("");
   const [notice, setNotice] = useState<Notice>({
     type: "info",
-    text: "Buka halaman ini dari task pane add-in Word untuk mulai memformat.",
+    text: "Versi baru dimulai dari nol. Pilih tab untuk menjalankan aksi format.",
   });
-
-  const [presets, setPresets] = useState<SkripsiPresetV1[]>([]);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>(DEFAULT_PRESET.id);
-  const [draftPreset, setDraftPreset] = useState<SkripsiPresetV1 | null>(null);
-
-  const [applyTarget, setApplyTarget] = useState<ApplyTarget>("selection");
-  const [styleKey, setStyleKey] = useState<PresetStyleKey>("body");
-  const [styleEditorKey, setStyleEditorKey] = useState<PresetStyleKey>("body");
-  const [headingLevel, setHeadingLevel] = useState<1 | 2 | 3>(1);
-  const [captionLabel, setCaptionLabel] = useState<CaptionLabel>("Figure");
-  const [captionTitle, setCaptionTitle] = useState<string>("");
-
-  const [importText, setImportText] = useState<string>("");
-  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
-  const [diagnosticMode, setDiagnosticMode] = useState<boolean>(false);
-  const [lastDiagnostics, setLastDiagnostics] = useState<OfficeActionDiagnostics | null>(null);
-  const [availableFonts, setAvailableFonts] = useState<string[]>([]);
-  const [fontScanBusy, setFontScanBusy] = useState<boolean>(false);
+  const [alignedAtInput, setAlignedAtInput] = useState<string>(formatLocalizedDecimalInput(0));
+  const [textIndentInput, setTextIndentInput] = useState<string>(
+    formatLocalizedDecimalInput(0.63)
+  );
+  const [tabStopAtInput, setTabStopAtInput] = useState<string>(formatLocalizedDecimalInput(0.63));
 
   useEffect(() => {
-    const local = loadLocalPresets();
-    setPresets(local);
-    setSelectedPresetId(local[0]?.id ?? DEFAULT_PRESET.id);
-    setDiagnosticMode(getDiagnosticModeEnabled());
-    setLastDiagnostics(getLastOfficeDiagnostics());
-
     waitForOfficeReady()
       .then((status) => {
         setRuntime(status);
@@ -170,71 +391,105 @@ export default function TaskpanePage() {
       });
   }, []);
 
-  const selectedPreset = useMemo(() => {
-    return presets.find((preset) => preset.id === selectedPresetId) ?? presets[0] ?? DEFAULT_PRESET;
-  }, [presets, selectedPresetId]);
-
-  useEffect(() => {
-    setDraftPreset(clonePreset(selectedPreset));
-  }, [selectedPreset]);
-
-  const workingPreset = draftPreset ?? selectedPreset;
-  const selectedPresetIsBuiltIn = isBuiltInPresetId(selectedPreset.id);
   const isWordReady = runtime.isOfficeReady && runtime.isWordHost;
   const isWordApi15Supported = isWordReady && isRequirementSetSupported("WordApi", "1.5");
+  const isWordApiDesktopListSupported =
+    isWordReady && isRequirementSetSupported("WordApiDesktop", "1.3");
+  const isBusy = busyAction.length > 0;
 
-  const captionPreset =
-    captionLabel === "Figure" ? workingPreset.captions.figure : workingPreset.captions.table;
-  const editingStyle = workingPreset.styles[styleEditorKey];
+  const activeCaptionPreset = useMemo(() => {
+    return captionLabel === "Figure" ? DEFAULT_PRESET.captions.figure : DEFAULT_PRESET.captions.table;
+  }, [captionLabel]);
 
-  const refreshDetectedFonts = useCallback(async (sourcePreset: SkripsiPresetV1): Promise<void> => {
-    setFontScanBusy(true);
-    try {
-      const detected = await detectInstalledFonts(COMMON_FONT_CANDIDATES);
-      const merged = Array.from(
-        new Set([...detected, ...getPresetFontNames(sourcePreset)])
-      ).sort((a, b) => a.localeCompare(b));
-      setAvailableFonts(merged);
-    } catch {
-      setAvailableFonts(getPresetFontNames(sourcePreset));
-    } finally {
-      setFontScanBusy(false);
-    }
-  }, []);
+  const activeCaptionStyle = useMemo(() => {
+    return captionLabel === "Figure"
+      ? DEFAULT_PRESET.styles.captionFigure
+      : DEFAULT_PRESET.styles.captionTable;
+  }, [captionLabel]);
+
+  const selectedLevelSettings = levelSettings[selectedLevelIndex] ?? createDefaultLevelSettings(0);
+  useEffect(() => {
+    setAlignedAtInput(formatLocalizedDecimalInput(selectedLevelSettings.alignedAtCm));
+    setTextIndentInput(formatLocalizedDecimalInput(selectedLevelSettings.textIndentCm));
+    setTabStopAtInput(formatLocalizedDecimalInput(selectedLevelSettings.tabStopAtCm));
+  }, [
+    selectedLevelIndex,
+    selectedLevelSettings.alignedAtCm,
+    selectedLevelSettings.textIndentCm,
+    selectedLevelSettings.tabStopAtCm,
+  ]);
+
+  const multilevelPreviewRows = useMemo(
+    () =>
+      LEVEL_INDICES.map((levelIndex) => {
+        const settingsForLevel = levelSettings[levelIndex] ?? createDefaultLevelSettings(levelIndex);
+        const previewText = buildRealLevelPreview(settingsForLevel, levelSettings);
+        const numberOffsetPx = toPreviewPx(settingsForLevel.alignedAtCm);
+        const textOffsetPx =
+          settingsForLevel.followNumberWith === "TrailingTab" && settingsForLevel.addTabStopAt
+            ? toPreviewPx(settingsForLevel.tabStopAtCm)
+            : toPreviewPx(settingsForLevel.textIndentCm);
+        const previewTextForWidth = previewText.trimEnd();
+        const estimatedNumberWidthPx = Math.max(
+          20,
+          previewTextForWidth.length * PREVIEW_NUMBER_CHAR_PX + 6
+        );
+        const styleOffsetPx = Math.max(
+          textOffsetPx,
+          numberOffsetPx + estimatedNumberWidthPx + PREVIEW_NUMBER_GAP_PX
+        );
+        const numberBoxWidthPx = Math.max(30, styleOffsetPx - numberOffsetPx - 4);
+        const ruleStartPx = styleOffsetPx + 56;
+        const rowWidthPx = Math.max(
+          260,
+          numberOffsetPx + 90,
+          styleOffsetPx + 170,
+          numberOffsetPx + numberBoxWidthPx + 120
+        );
+        return {
+          levelIndex,
+          previewText,
+          linkedStyleLabel: getLinkedStylePreviewLabel(settingsForLevel.linkedStyle),
+          numberOffsetPx,
+          styleOffsetPx,
+          ruleStartPx,
+          numberBoxWidthPx,
+          rowWidthPx,
+          numberTextAlign: toCssNumberAlign(settingsForLevel.alignment),
+        };
+      }),
+    [levelSettings]
+  );
+  const restartAfterEnabled = selectedLevelSettings.restartListAfterLevelIndex !== null;
+  const restartAfterLevelOptions = LEVEL_INDICES.filter(
+    (levelIndex) => levelIndex < selectedLevelIndex
+  );
 
   useEffect(() => {
-    void refreshDetectedFonts(selectedPreset);
-  }, [selectedPreset, refreshDetectedFonts]);
+    if (!isWordApiDesktopListSupported && applyChangesTo !== "WholeList") {
+      setApplyChangesTo("WholeList");
+    }
+  }, [isWordApiDesktopListSupported, applyChangesTo]);
+
+  function updateSelectedLevelSettings(
+    updater: (previous: MultiLevelLevelSettings) => MultiLevelLevelSettings
+  ): void {
+    setLevelSettings((previous) =>
+      previous.map((settings, index) =>
+        index === selectedLevelIndex
+          ? {
+              ...updater(settings),
+              levelIndex: selectedLevelIndex,
+            }
+          : settings
+      )
+    );
+  }
 
   async function runAction(actionName: string, action: () => Promise<void>): Promise<void> {
     setBusyAction(actionName);
-    const previousDiagnosticTimestamp = getLastOfficeDiagnostics()?.timestamp;
     try {
       await action();
-      const diagnostics = getLastOfficeDiagnostics();
-      setLastDiagnostics(diagnostics);
-
-      const hasNewDiagnostics =
-        Boolean(diagnostics) && diagnostics?.timestamp !== previousDiagnosticTimestamp;
-
-      if (diagnosticMode && hasNewDiagnostics && diagnostics?.failed) {
-        setNotice({
-          type: "error",
-          text:
-            `${actionName} selesai dengan ${diagnostics.failed} paragraf gagal diproses. ` +
-            summarizeDiagnostics(diagnostics),
-        });
-        return;
-      }
-
-      if (diagnosticMode && hasNewDiagnostics && diagnostics?.fallbackUsed) {
-        setNotice({
-          type: "info",
-          text: `${actionName} selesai menggunakan jalur fallback. ${summarizeDiagnostics(diagnostics)}`,
-        });
-        return;
-      }
-
       setNotice({ type: "ok", text: `${actionName} berhasil.` });
     } catch (error: unknown) {
       setNotice({ type: "error", text: `${actionName} gagal: ${extractErrorMessage(error)}` });
@@ -243,197 +498,618 @@ export default function TaskpanePage() {
     }
   }
 
-  function persistPreset(nextPreset: SkripsiPresetV1, successMessage: string): void {
-    const next = upsertLocalPreset(nextPreset);
-    setPresets(next);
-    setSelectedPresetId(nextPreset.id);
-    setDraftPreset(clonePreset(nextPreset));
-    setNotice({ type: "ok", text: successMessage });
-  }
-
-  function updateStyleText<K extends keyof SkripsiPresetV1["styles"]["body"]["text"]>(
-    styleName: PresetStyleKey,
-    key: K,
-    value: SkripsiPresetV1["styles"]["body"]["text"][K]
-  ): void {
-    setDraftPreset((previous) => {
-      const source = previous ?? clonePreset(selectedPreset);
-      source.styles[styleName].text[key] = value;
-      return { ...source };
-    });
-  }
-
-  function updateStyleParagraph<K extends keyof SkripsiPresetV1["styles"]["body"]["paragraph"]>(
-    styleName: PresetStyleKey,
-    key: K,
-    value: SkripsiPresetV1["styles"]["body"]["paragraph"][K]
-  ): void {
-    setDraftPreset((previous) => {
-      const source = previous ?? clonePreset(selectedPreset);
-      source.styles[styleName].paragraph[key] = value;
-      return { ...source };
-    });
-  }
-
-  function updateCaptionSeparator(label: CaptionLabel, value: "." | ":" | "-"): void {
-    setDraftPreset((previous) => {
-      const source = previous ?? clonePreset(selectedPreset);
-      if (label === "Figure") {
-        source.captions.figure.separator = value;
-      } else {
-        source.captions.table.separator = value;
-      }
-      return { ...source };
-    });
-  }
-
-  function handleCreatePresetCopy(): void {
-    const base = clonePreset(workingPreset);
-    const nextName = `${base.name} Salinan`;
-    const nextPreset: SkripsiPresetV1 = {
-      ...base,
-      id: createPresetId(nextName),
-      name: nextName,
-    };
-
-    persistPreset(nextPreset, "Salinan preset berhasil dibuat.");
-  }
-
-  function handleDeletePreset(): void {
-    if (selectedPresetIsBuiltIn) {
-      setNotice({
-        type: "info",
-        text: "Preset bawaan kampus dilindungi. Buat salinan dulu sebelum menghapus.",
-      });
-      return;
-    }
-
-    const next = deleteLocalPreset(selectedPreset.id);
-    setPresets(next);
-    setSelectedPresetId(next[0]?.id ?? DEFAULT_PRESET.id);
-    setNotice({ type: "ok", text: "Preset berhasil dihapus." });
-  }
-
-  function handleSavePresetToLibrary(): void {
-    const cleaned = clonePreset(workingPreset);
-    if (!cleaned.id || isBuiltInPresetId(cleaned.id)) {
-      cleaned.id = createPresetId(cleaned.name);
-      const lowerName = cleaned.name.toLowerCase();
-      if (!lowerName.includes("custom") && !lowerName.includes("kustom")) {
-        cleaned.name = `${cleaned.name} Kustom`;
-      }
-    }
-    persistPreset(cleaned, "Preset berhasil disimpan ke pustaka lokal.");
-  }
-
-  function handleImportFile(event: ChangeEvent<HTMLInputElement>): void {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      setImportText(text);
-    };
-    reader.readAsText(file);
-  }
-
-  function toggleDiagnosticMode(enabled: boolean): void {
-    setDiagnosticMode(enabled);
-    persistDiagnosticMode(enabled);
-    setLastDiagnostics(getLastOfficeDiagnostics());
-    setNotice({
-      type: "info",
-      text: enabled
-        ? "Mode diagnostik aktif. Detail paragraf yang gagal akan direkam."
-        : "Mode diagnostik nonaktif.",
-    });
-  }
-
   return (
-    <main>
-      <div className="shell">
-        <section className="status info compact-meta">
-          Host: <strong>{runtime.hostName}</strong> | Siap: <strong>{isWordReady ? "Ya" : "Tidak"}</strong> |
-          WordApi 1.5: <strong>{isWordApi15Supported ? "Ya" : "Tidak"}</strong>
+    <main className="app-root">
+      <div className="tab-shell">
+        <header className="tab-header">
+          <p className="app-kicker">Skripsi-Fix</p>
+          <h1>Formatter Skripsi Mode Tab</h1>
+          <p>
+            Fokus utama: editor multilevel mirip menu Word untuk atur level, format nomor, gaya
+            judul, dan posisi indent.
+          </p>
+        </header>
+
+        <section className="runtime-strip" aria-live="polite">
+          Aplikasi: <strong>{runtime.hostName}</strong> | Siap Word: <strong>{isWordReady ? "Ya" : "Tidak"}</strong> |
+          Dukungan WordApi 1.5: <strong>{isWordApi15Supported ? "Ya" : "Tidak"}</strong>
         </section>
 
-        <section className="card">
-          <h1 className="panel-title">Skripsi-Fix</h1>
-          <p className="panel-subtitle">Kontrol ringkas untuk task pane Word.</p>
+        <nav className="tabs" role="tablist" aria-label="Menu format skripsi">
+          {TAB_ITEMS.map((tab) => {
+            const isActive = tab.key === activeTab;
+            return (
+              <button
+                key={tab.key}
+                className={isActive ? "tab-btn active" : "tab-btn"}
+                onClick={() => setActiveTab(tab.key)}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`panel-${tab.key}`}
+                id={`tab-${tab.key}`}
+                type="button"
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
 
-          <div className="row">
-            <label htmlFor="preset-select">Preset</label>
-            <select
-              id="preset-select"
-              value={selectedPresetId}
-              onChange={(event) => setSelectedPresetId(event.target.value)}
-            >
-              {presets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-            </select>
-            <div className="footer-note">
-              Tipe: <strong>{selectedPresetIsBuiltIn ? "Bawaan" : "Kustom"}</strong>
-            </div>
-          </div>
+        <section className="tab-panel" role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
+          {activeTab === "multilevel" ? (
+            <>
+              <h2>Atur Daftar Multilevel Baru</h2>
+              <p>
+                Klik level yang ingin diubah, lalu terapkan ke daftar pada seleksi. Menu ini mengikuti
+                alur editor bawaan Word.
+              </p>
+              <p>
+                Opsi lanjutan (`Ikuti nomor dengan`, `Tambahkan tab stop di`, `Penomoran gaya legal`,
+                `Mulai ulang daftar setelah`) memerlukan dukungan WordApiDesktop 1.3:{" "}
+                <strong>{isWordApiDesktopListSupported ? "Tersedia" : "Tidak tersedia"}</strong>.
+              </p>
 
-          <div className="row inline">
-            <div>
-              <label htmlFor="apply-target">Target</label>
+              <div className="level-editor">
+                <div className="level-side">
+                  <p className="mini-title">Pilih level untuk diubah</p>
+                  <div className="level-grid">
+                    {LEVEL_INDICES.map((levelIndex) => {
+                      const isSelected = selectedLevelIndex === levelIndex;
+                      return (
+                        <button
+                          key={`level-${levelIndex}`}
+                          type="button"
+                          className={isSelected ? "level-btn active" : "level-btn"}
+                          onClick={() => setSelectedLevelIndex(levelIndex)}
+                        >
+                          {levelIndex + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="level-main">
+                  <div className="preview-showcase">
+                    <p className="option-group-title">Pratinjau Hasil Akhir</p>
+                    <div className="preview-canvas">
+                      {multilevelPreviewRows.map((row) => (
+                        <div
+                          key={`preview-level-${row.levelIndex}`}
+                          className={selectedLevelIndex === row.levelIndex ? "preview-item active" : "preview-item"}
+                          onClick={() => setSelectedLevelIndex(row.levelIndex)}
+                        >
+                          <div className="preview-item-main">
+                            <div
+                              className="preview-item-track"
+                              style={{ minWidth: `${row.rowWidthPx}px` }}
+                            >
+                              <span
+                                className="preview-item-number"
+                                style={{
+                                  left: `${row.numberOffsetPx}px`,
+                                  minWidth: `${row.numberBoxWidthPx}px`,
+                                  textAlign: row.numberTextAlign,
+                                }}
+                              >
+                                {row.previewText.length > 0 ? row.previewText : "(tanpa nomor)"}
+                              </span>
+                              <span
+                                className="preview-item-style"
+                                style={{ left: `${row.styleOffsetPx}px` }}
+                              >
+                                {row.linkedStyleLabel}
+                              </span>
+                              <span
+                                className="preview-item-rule"
+                                style={{ left: `${row.ruleStartPx}px` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <p className="option-group-title">Pengaturan Umum</p>
+                    <label htmlFor="apply-changes">Terapkan perubahan ke</label>
+                    <select
+                      id="apply-changes"
+                      value={applyChangesTo}
+                      onChange={(event) => setApplyChangesTo(event.target.value as ListApplyScope)}
+                    >
+                      {APPLY_CHANGES_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          disabled={option.value !== "WholeList" && !isWordApiDesktopListSupported}
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {applyChangesTo !== "WholeList" ? (
+                      <p className="form-hint">
+                        Mode cakupan ini akan memakai pemisahan daftar via WordApiDesktop 1.3.
+                      </p>
+                    ) : null}
+
+                    <label htmlFor="linked-style">Hubungkan level ke gaya</label>
+                    <select
+                      id="linked-style"
+                      value={selectedLevelSettings.linkedStyle}
+                      onChange={(event) =>
+                        updateSelectedLevelSettings((previous) => ({
+                          ...previous,
+                          linkedStyle: event.target.value as LinkedHeadingStyle,
+                        }))
+                      }
+                    >
+                      {LINKED_STYLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                  </div>
+
+                  <div className="option-group">
+                    <p className="option-group-title">Format Nomor</p>
+                    <label htmlFor="number-formatting">Masukkan format untuk nomor</label>
+                    <input
+                      id="number-formatting"
+                      value={selectedLevelSettings.numberFormatPattern}
+                      onChange={(event) =>
+                        updateSelectedLevelSettings((previous) => ({
+                          ...previous,
+                          numberFormatPattern: event.target.value,
+                        }))
+                      }
+                      placeholder="Contoh: BAB <L1> atau <L1>.<L2>"
+                    />
+                    <p className="form-hint">
+                      Gunakan token level <code>&lt;L1&gt;</code> sampai <code>&lt;L9&gt;</code>.
+                      Contoh level 3: <code>&lt;L1&gt;.&lt;L2&gt;.&lt;L3&gt;</code>
+                    </p>
+
+                    <div className="inline-pair">
+                      <div>
+                        <label htmlFor="number-style">Gaya nomor untuk level ini</label>
+                        <select
+                          id="number-style"
+                          value={selectedLevelSettings.numberStyle}
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              numberStyle: event.target.value as ListNumberingStyle,
+                            }))
+                          }
+                        >
+                          {NUMBER_STYLE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="include-from">Sertakan nomor level dari</label>
+                        <select
+                          id="include-from"
+                          value={
+                            selectedLevelSettings.includeFromLevelIndex === null
+                              ? "none"
+                              : String(selectedLevelSettings.includeFromLevelIndex)
+                          }
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => {
+                              const includeFromLevelIndex =
+                                event.target.value === "none" ? null : Number(event.target.value);
+                              return {
+                                ...previous,
+                                includeFromLevelIndex,
+                                numberFormatPattern: buildNumberFormatPattern(
+                                  selectedLevelIndex,
+                                  includeFromLevelIndex,
+                                  previous.levelSeparator,
+                                  previous.prefixText,
+                                  previous.suffixText
+                                ),
+                              };
+                            })
+                          }
+                        >
+                          <option value="none">(Tidak ada)</option>
+                          {LEVEL_INDICES.filter((levelIndex) => levelIndex <= selectedLevelIndex).map(
+                            (levelIndex) => (
+                              <option key={`include-${levelIndex}`} value={levelIndex}>
+                                Level {levelIndex + 1}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="inline-pair">
+                      <div>
+                        <label htmlFor="separator-text">Pemisah level</label>
+                        <input
+                          id="separator-text"
+                          value={selectedLevelSettings.levelSeparator}
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => {
+                              const levelSeparator = event.target.value;
+                              return {
+                                ...previous,
+                                levelSeparator,
+                                numberFormatPattern: buildNumberFormatPattern(
+                                  selectedLevelIndex,
+                                  previous.includeFromLevelIndex,
+                                  levelSeparator,
+                                  previous.prefixText,
+                                  previous.suffixText
+                                ),
+                              };
+                            })
+                          }
+                          placeholder="."
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="start-at">Mulai dari</label>
+                        <input
+                          id="start-at"
+                          type="number"
+                          min={1}
+                          value={selectedLevelSettings.startAt}
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              startAt: parsePositiveIntegerInput(event.target.value, previous.startAt),
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="inline-pair">
+                      <div>
+                        <label htmlFor="follow-number-with">Ikuti nomor dengan</label>
+                        <select
+                          id="follow-number-with"
+                          value={selectedLevelSettings.followNumberWith}
+                          disabled={!isWordApiDesktopListSupported}
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              followNumberWith: event.target.value as FollowNumberWith,
+                              addTabStopAt:
+                                event.target.value === "TrailingTab" ? previous.addTabStopAt : false,
+                            }))
+                          }
+                        >
+                          {FOLLOW_NUMBER_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="restart-after-select">Mulai ulang daftar setelah</label>
+                        <select
+                          id="restart-after-select"
+                          value={
+                            restartAfterEnabled
+                              ? String(selectedLevelSettings.restartListAfterLevelIndex)
+                              : "none"
+                          }
+                          disabled={
+                            !isWordApiDesktopListSupported ||
+                            !restartAfterEnabled ||
+                            restartAfterLevelOptions.length === 0
+                          }
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              restartListAfterLevelIndex:
+                                event.target.value === "none"
+                                  ? null
+                                  : Number(event.target.value),
+                            }))
+                          }
+                        >
+                          <option value="none">(Tidak ada)</option>
+                          {restartAfterLevelOptions.map((levelIndex) => (
+                            <option key={`restart-${levelIndex}`} value={levelIndex}>
+                              Level {levelIndex + 1}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={restartAfterEnabled}
+                        disabled={
+                          !isWordApiDesktopListSupported || restartAfterLevelOptions.length === 0
+                        }
+                        onChange={(event) =>
+                          updateSelectedLevelSettings((previous) => ({
+                            ...previous,
+                            restartListAfterLevelIndex: event.target.checked
+                              ? Math.max(0, selectedLevelIndex - 1)
+                              : null,
+                          }))
+                        }
+                      />
+                      Aktifkan restart numbering setelah level lebih tinggi
+                    </label>
+
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={selectedLevelSettings.legalStyleNumbering}
+                        disabled={!isWordApiDesktopListSupported}
+                        onChange={(event) =>
+                          updateSelectedLevelSettings((previous) => ({
+                            ...previous,
+                            legalStyleNumbering: event.target.checked,
+                          }))
+                        }
+                      />
+                      Penomoran gaya legal (ubah format turunan jadi angka legal)
+                    </label>
+
+                    <div className="format-preview">
+                      Format aktif: <code>{getLevelFormatPreview(selectedLevelSettings)}</code>
+                    </div>
+                  </div>
+
+                  <div className="option-group">
+                    <p className="option-group-title">Posisi</p>
+                    <div className="inline-pair">
+                      <div>
+                        <label htmlFor="number-alignment">Perataan nomor</label>
+                        <select
+                          id="number-alignment"
+                          value={selectedLevelSettings.alignment}
+                          onChange={(event) =>
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              alignment: event.target.value as ListLevelAlignment,
+                            }))
+                          }
+                        >
+                          {ALIGNMENT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label htmlFor="aligned-at">Rata pada (cm)</label>
+                        <input
+                          id="aligned-at"
+                          type="text"
+                          inputMode="decimal"
+                          value={alignedAtInput}
+                          onChange={(event) => {
+                            const rawValue = event.target.value;
+                            setAlignedAtInput(rawValue);
+                            const parsedValue = tryParseNonNegativeDecimalInput(rawValue);
+                            if (parsedValue === null) {
+                              return;
+                            }
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              alignedAtCm: parsedValue,
+                            }));
+                          }}
+                          onBlur={() =>
+                            setAlignedAtInput(
+                              formatLocalizedDecimalInput(selectedLevelSettings.alignedAtCm)
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <label htmlFor="text-indent">Indentasi teks pada (cm)</label>
+                    <input
+                      id="text-indent"
+                      type="text"
+                      inputMode="decimal"
+                      value={textIndentInput}
+                      onChange={(event) => {
+                        const rawValue = event.target.value;
+                        setTextIndentInput(rawValue);
+                        const parsedValue = tryParseNonNegativeDecimalInput(rawValue);
+                        if (parsedValue === null) {
+                          return;
+                        }
+                        updateSelectedLevelSettings((previous) => ({
+                          ...previous,
+                          textIndentCm: parsedValue,
+                        }));
+                      }}
+                      onBlur={() =>
+                        setTextIndentInput(
+                          formatLocalizedDecimalInput(selectedLevelSettings.textIndentCm)
+                        )
+                      }
+                    />
+
+                    <div className="inline-pair">
+                      <div>
+                        <label className="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={selectedLevelSettings.addTabStopAt}
+                            disabled={
+                              !isWordApiDesktopListSupported ||
+                              selectedLevelSettings.followNumberWith !== "TrailingTab"
+                            }
+                            onChange={(event) =>
+                              updateSelectedLevelSettings((previous) => ({
+                                ...previous,
+                                addTabStopAt: event.target.checked,
+                              }))
+                            }
+                          />
+                          Tambahkan tab stop di
+                        </label>
+                      </div>
+                      <div>
+                        <label htmlFor="tab-stop-at">Posisi tab stop (cm)</label>
+                        <input
+                          id="tab-stop-at"
+                          type="text"
+                          inputMode="decimal"
+                          value={tabStopAtInput}
+                          disabled={
+                            !isWordApiDesktopListSupported ||
+                            selectedLevelSettings.followNumberWith !== "TrailingTab" ||
+                            !selectedLevelSettings.addTabStopAt
+                          }
+                          onChange={(event) => {
+                            const rawValue = event.target.value;
+                            setTabStopAtInput(rawValue);
+                            const parsedValue = tryParseNonNegativeDecimalInput(rawValue);
+                            if (parsedValue === null) {
+                              return;
+                            }
+                            updateSelectedLevelSettings((previous) => ({
+                              ...previous,
+                              tabStopAtCm: parsedValue,
+                            }));
+                          }}
+                          onBlur={() =>
+                            setTabStopAtInput(
+                              formatLocalizedDecimalInput(selectedLevelSettings.tabStopAtCm)
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="button-grid">
+                <button
+                  disabled={!isWordReady || isBusy}
+                  onClick={() =>
+                    runAction(`Terapkan Pengaturan Level ${selectedLevelIndex + 1}`, async () => {
+                      const result = await applyLevelSettingsToSelectionList(selectedLevelSettings, {
+                        applyTo: applyChangesTo,
+                        applyScopeLevelIndex: selectedLevelIndex,
+                      });
+                      const linkedText =
+                        result.linkedParagraphs > 0
+                          ? ` ${result.linkedParagraphs} paragraf dihubungkan ke gaya ${selectedLevelSettings.linkedStyle}.`
+                          : "";
+                      const applyScopeText =
+                        applyChangesTo !== "WholeList" && !result.applyScopeApplied
+                          ? " Cakupan 'Terapkan perubahan ke' tidak diterapkan karena WordApiDesktop 1.3 tidak tersedia."
+                          : "";
+                      const advancedRequested = usesAdvancedDesktopOptions(selectedLevelSettings);
+                      const advancedText =
+                        advancedRequested && !result.desktopLevelOptionsApplied
+                          ? " Opsi lanjutan tidak diterapkan karena WordApiDesktop 1.3 tidak tersedia."
+                          : "";
+
+                      setNotice({
+                        type: "ok",
+                        text:
+                          `Pengaturan level ${result.configuredLevel + 1} diterapkan ke daftar ${result.listId}.` +
+                          linkedText +
+                          applyScopeText +
+                          advancedText,
+                      });
+                    })
+                  }
+                >
+                  Terapkan Pengaturan Level {selectedLevelIndex + 1}
+                </button>
+
+                <button
+                  disabled={!isWordReady || isBusy}
+                  onClick={() =>
+                    runAction("Terapkan Semua Pengaturan Level", async () => {
+                      const payload = levelSettings.map((settings, levelIndex) => ({
+                        ...settings,
+                        levelIndex,
+                      }));
+                      const advancedRequestedCount = payload.filter((settings) =>
+                        usesAdvancedDesktopOptions(settings)
+                      ).length;
+
+                      const result = await applyAllLevelSettingsToSelectionList(payload, {
+                        applyTo: applyChangesTo,
+                        applyScopeLevelIndex: selectedLevelIndex,
+                      });
+                      const applyScopeText =
+                        applyChangesTo !== "WholeList" && !result.applyScopeApplied
+                          ? " Cakupan 'Terapkan perubahan ke' tidak diterapkan karena WordApiDesktop 1.3 tidak tersedia."
+                          : "";
+                      const advancedText =
+                        advancedRequestedCount > 0 &&
+                        result.desktopLevelOptionsAppliedCount < advancedRequestedCount
+                          ? ` Opsi lanjutan hanya diterapkan pada ${result.desktopLevelOptionsAppliedCount}/${advancedRequestedCount} level karena dukungan WordApiDesktop terbatas.`
+                          : "";
+                      setNotice({
+                        type: "ok",
+                        text:
+                          `${result.configuredLevels} level berhasil diterapkan ke daftar ${result.listId}. ` +
+                          `Paragraf yang dihubungkan ke gaya: ${result.linkedParagraphs}.` +
+                          applyScopeText +
+                          advancedText,
+                      });
+                    })
+                  }
+                >
+                  Terapkan Semua Level (1-9)
+                </button>
+              </div>
+            </>
+          ) : null}
+
+          {activeTab === "heading" ? (
+            <>
+              <h2>Judul dan Gaya</h2>
+              <p>Terapkan gaya dari preset default untuk menjaga konsistensi format.</p>
+
+              <label htmlFor="heading-target">Target</label>
               <select
-                id="apply-target"
+                id="heading-target"
                 value={applyTarget}
                 onChange={(event) => setApplyTarget(event.target.value as ApplyTarget)}
               >
                 <option value="selection">Seleksi</option>
-                <option value="document">Dokumen</option>
+                <option value="document">Seluruh Dokumen</option>
               </select>
-            </div>
-            <div>
+
               <label htmlFor="style-key">Gaya</label>
               <select
                 id="style-key"
                 value={styleKey}
                 onChange={(event) => setStyleKey(event.target.value as PresetStyleKey)}
               >
-                {STYLE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
+                {STYLE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
-            </div>
-          </div>
 
-          <div className="actions">
-            <button
-              onClick={() =>
-                runAction("Autofix berbasis bab", async () => {
-                  const summary = await applyChapterAwareFormatting(workingPreset, applyTarget);
-                  setNotice({
-                    type: "ok",
-                    text:
-                      `Autofix berbasis bab selesai pada ${summary.total} paragraf. ` +
-                      `J1:${summary.heading1}, J2:${summary.heading2}, J3:${summary.heading3}, ` +
-                      `Utama:${summary.body}, KetGambar:${summary.captionFigure}, ` +
-                      `KetTabel:${summary.captionTable}, Kutipan:${summary.quote}.`,
-                  });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Autofix Bab
-            </button>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="heading-level">Level judul</label>
+              <label htmlFor="heading-level">Level Judul</label>
               <select
                 id="heading-level"
                 value={headingLevel}
@@ -443,142 +1119,45 @@ export default function TaskpanePage() {
                 <option value={2}>Judul 2</option>
                 <option value={3}>Judul 3</option>
               </select>
-            </div>
-            <button
-              onClick={() =>
-                runAction("Terapkan gaya judul", async () => {
-                  const count = await applyHeadingStyle(headingLevel, applyTarget);
-                  setNotice({
-                    type: "ok",
-                    text: `Penerapan gaya judul selesai. ${count} paragraf diperbarui.`,
-                  });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Terapkan Judul
-            </button>
-          </div>
-        </section>
 
-        <details className="card details-card" open>
-          <summary>Pustaka Preset</summary>
-          <p>{PRESET_PACK_NOTICE}</p>
-
-          <div className="row inline">
-            <button onClick={handleCreatePresetCopy}>Buat Salinan</button>
-            <button onClick={handleDeletePreset} disabled={selectedPresetIsBuiltIn}>
-              Hapus
-            </button>
-          </div>
-          <div className="row">
-            <button
-              onClick={() => {
-                const reset = resetLocalPresetsToBuiltIns();
-                setPresets(reset);
-                setSelectedPresetId(reset[0]?.id ?? DEFAULT_PRESET.id);
-                setNotice({ type: "ok", text: "Pustaka lokal direset ke paket bawaan kampus." });
-              }}
-            >
-              Reset ke Paket Bawaan
-            </button>
-          </div>
-
-          <div className="row">
-            <label htmlFor="preset-name">Nama preset</label>
-            <input
-              id="preset-name"
-              value={workingPreset.name}
-              onChange={(event) =>
-                setDraftPreset((previous) => {
-                  const source = previous ?? clonePreset(selectedPreset);
-                  source.name = event.target.value;
-                  return { ...source };
-                })
-              }
-            />
-          </div>
-
-          <div className="row inline">
-            <button onClick={handleSavePresetToLibrary}>Simpan Pustaka</button>
-            <button
-              onClick={() =>
-                runAction("Simpan preset ke dokumen", async () => {
-                  await saveDocumentPreset(workingPreset);
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Simpan Dok
-            </button>
-          </div>
-
-          <div className="row inline">
-            <button
-              onClick={() =>
-                runAction("Muat preset dari dokumen", async () => {
-                  const fromDoc = loadDocumentPreset();
-                  if (!fromDoc) {
-                    throw new Error("Preset tidak ditemukan di dokumen ini.");
+              <div className="button-grid">
+                <button
+                  className="primary"
+                  disabled={!isWordReady || isBusy}
+                  onClick={() =>
+                    runAction("Terapkan Gaya", async () => {
+                      const count = await applyStylePresetToTarget(
+                        styleKey,
+                        DEFAULT_PRESET.styles[styleKey],
+                        applyTarget
+                      );
+                      setNotice({ type: "ok", text: `${count} paragraf berhasil diperbarui.` });
+                    })
                   }
-                  persistPreset(fromDoc, "Preset berhasil dimuat dari dokumen.");
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Muat Dok
-            </button>
-            <button
-              onClick={() => runAction("Hapus preset dokumen", clearDocumentPreset)}
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Bersihkan Dok
-            </button>
-          </div>
+                >
+                  Terapkan Gaya Terpilih
+                </button>
+                <button
+                  disabled={!isWordReady || isBusy}
+                  onClick={() =>
+                    runAction("Terapkan Judul", async () => {
+                      const count = await applyHeadingStyle(headingLevel, applyTarget);
+                      setNotice({ type: "ok", text: `${count} paragraf berhasil dijadikan judul.` });
+                    })
+                  }
+                >
+                  Terapkan Judul {headingLevel}
+                </button>
+              </div>
+            </>
+          ) : null}
 
-          <div className="row inline">
-            <button
-              onClick={() => downloadFile("skripsi-presets.json", exportPresetsJson())}
-              disabled={busyAction.length > 0}
-            >
-              Ekspor JSON
-            </button>
-            <label style={{ marginBottom: 0 }}>
-              <span style={{ display: "block", marginBottom: 4 }}>Impor file</span>
-              <input type="file" accept="application/json,.json" onChange={handleImportFile} />
-            </label>
-          </div>
+          {activeTab === "caption" ? (
+            <>
+              <h2>Keterangan Gambar/Tabel</h2>
+              <p>Sisipkan keterangan konsisten yang siap dipakai untuk daftar gambar dan daftar tabel.</p>
 
-          <div className="row">
-            <label htmlFor="import-json">Impor teks JSON</label>
-            <textarea
-              id="import-json"
-              value={importText}
-              onChange={(event) => setImportText(event.target.value)}
-              placeholder="Tempel array JSON preset di sini"
-            />
-            <button
-              onClick={() => {
-                try {
-                  const next = importPresetsJson(importText);
-                  setPresets(next);
-                  setSelectedPresetId(next[0]?.id ?? DEFAULT_PRESET.id);
-                  setNotice({ type: "ok", text: "Preset berhasil diimpor dari JSON." });
-                } catch (error: unknown) {
-                  setNotice({ type: "error", text: `Impor gagal: ${extractErrorMessage(error)}` });
-                }
-              }}
-            >
-              Impor Preset
-            </button>
-          </div>
-        </details>
-
-        <details className="card details-card">
-          <summary>Keterangan + Daftar Isi</summary>
-          <div className="row inline">
-            <div>
-              <label htmlFor="caption-label">Label keterangan</label>
+              <label htmlFor="caption-label">Label</label>
               <select
                 id="caption-label"
                 value={captionLabel}
@@ -587,496 +1166,118 @@ export default function TaskpanePage() {
                 <option value="Figure">Gambar</option>
                 <option value="Table">Tabel</option>
               </select>
-            </div>
-            <div>
-              <label htmlFor="caption-title">Judul keterangan</label>
+
+              <label htmlFor="caption-title">Judul Keterangan</label>
               <input
                 id="caption-title"
                 value={captionTitle}
                 onChange={(event) => setCaptionTitle(event.target.value)}
-                placeholder="Judul keterangan"
+                placeholder="Contoh: Diagram Arsitektur Sistem"
               />
-            </div>
-          </div>
 
-          <div className="actions">
-            <button
-              className="primary"
-              onClick={() =>
-                runAction("Sisipkan keterangan", async () => {
-                  if (!captionTitle.trim()) {
-                    throw new Error("Judul keterangan tidak boleh kosong.");
-                  }
+              <button
+                className="primary"
+                disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                onClick={() =>
+                  runAction("Sisipkan Keterangan", async () => {
+                    if (!captionTitle.trim()) {
+                      throw new Error("Judul keterangan tidak boleh kosong.");
+                    }
 
-                  await insertCaption({
-                    label: captionLabel,
-                    separator: captionPreset.separator,
-                    title: captionTitle,
-                    titleCase: captionPreset.titleCase,
-                    captionStyle:
-                      captionLabel === "Figure"
-                        ? workingPreset.styles.captionFigure
-                        : workingPreset.styles.captionTable,
-                  });
-                  setCaptionTitle("");
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Sisipkan Keterangan
-            </button>
-            <button
-              onClick={() => runAction("Sisipkan daftar isi di seleksi", insertTocAtSelection)}
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Sisipkan Daftar Isi
-            </button>
-            <button
-              onClick={() => runAction("Sisipkan daftar gambar", insertListOfFiguresAtSelection)}
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Sisipkan Daftar Gambar
-            </button>
-            <button
-              onClick={() => runAction("Sisipkan daftar tabel", insertListOfTablesAtSelection)}
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Sisipkan Daftar Tabel
-            </button>
-            <button
-              onClick={() =>
-                runAction("Perbarui field daftar isi", async () => {
-                  const count = await updateTocFields();
-                  setNotice({ type: "ok", text: `${count} field daftar isi diperbarui.` });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Perbarui Daftar Isi
-            </button>
-            <button
-              onClick={() =>
-                runAction("Perbarui field daftar gambar", async () => {
-                  const count = await updateListOfFiguresFields();
-                  setNotice({ type: "ok", text: `${count} field daftar gambar diperbarui.` });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Perbarui Daftar Gambar
-            </button>
-            <button
-              onClick={() =>
-                runAction("Perbarui field daftar tabel", async () => {
-                  const count = await updateListOfTablesFields();
-                  setNotice({ type: "ok", text: `${count} field daftar tabel diperbarui.` });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Perbarui Daftar Tabel
-            </button>
-            <button
-              onClick={() =>
-                runAction("Perbarui semua field", async () => {
-                  const count = await updateAllFields();
-                  setNotice({ type: "ok", text: `${count} field di isi dokumen diperbarui.` });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0 || !isWordApi15Supported}
-            >
-              Perbarui Semua Field
-            </button>
-          </div>
-        </details>
+                    await insertCaption({
+                      label: captionLabel,
+                      separator: activeCaptionPreset.separator,
+                      title: captionTitle,
+                      titleCase: activeCaptionPreset.titleCase,
+                      captionStyle: activeCaptionStyle,
+                    });
 
-        <details className="card details-card">
-          <summary>Editor Gaya</summary>
-          <div className="row">
-            <label htmlFor="style-editor-key">Gaya yang diedit</label>
-            <select
-              id="style-editor-key"
-              value={styleEditorKey}
-              onChange={(event) => setStyleEditorKey(event.target.value as PresetStyleKey)}
-            >
-              {STYLE_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            <div className="footer-note">
-              Pemetaan bawaan: <strong>{getBuiltInStyleLabel(styleEditorKey)}</strong> | Font:
-              <strong> {availableFonts.length}</strong>
-            </div>
-            <button
-              onClick={() => {
-                void refreshDetectedFonts(workingPreset);
-              }}
-              disabled={fontScanBusy || busyAction.length > 0}
-            >
-              {fontScanBusy ? "Memindai Font..." : "Pindai Ulang Font"}
-            </button>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="font-name">Font</label>
-              <select
-                id="font-name"
-                value={editingStyle.text.fontName}
-                onChange={(event) =>
-                  updateStyleText(styleEditorKey, "fontName", event.target.value)
+                    setCaptionTitle("");
+                  })
                 }
               >
-                {availableFonts.map((fontName) => (
-                  <option key={fontName} value={fontName}>
-                    {fontName}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="font-size">Ukuran font (pt)</label>
-              <input
-                id="font-size"
-                type="number"
-                value={editingStyle.text.fontSizePt}
-                onChange={(event) =>
-                  updateStyleText(styleEditorKey, "fontSizePt", Number(event.target.value))
-                }
-              />
-            </div>
-          </div>
-
-          <div className="row inline">
-            <label style={{ marginBottom: 0 }}>
-              <input
-                type="checkbox"
-                checked={editingStyle.text.bold}
-                onChange={(event) => updateStyleText(styleEditorKey, "bold", event.target.checked)}
-                style={{ width: "auto", marginRight: 8 }}
-              />
-              Tebal
-            </label>
-            <label style={{ marginBottom: 0 }}>
-              <input
-                type="checkbox"
-                checked={editingStyle.text.italic}
-                onChange={(event) =>
-                  updateStyleText(styleEditorKey, "italic", event.target.checked)
-                }
-                style={{ width: "auto", marginRight: 8 }}
-              />
-              Miring
-            </label>
-          </div>
-
-          <div className="row inline">
-            <label style={{ marginBottom: 0 }}>
-              <input
-                type="checkbox"
-                checked={editingStyle.text.underline === "Single"}
-                onChange={(event) =>
-                  updateStyleText(
-                    styleEditorKey,
-                    "underline",
-                    event.target.checked ? "Single" : "None"
-                  )
-                }
-                style={{ width: "auto", marginRight: 8 }}
-              />
-              Garis bawah
-            </label>
-            <label style={{ marginBottom: 0 }}>
-              <input
-                type="checkbox"
-                checked={editingStyle.text.allCaps}
-                onChange={(event) =>
-                  updateStyleText(styleEditorKey, "allCaps", event.target.checked)
-                }
-                style={{ width: "auto", marginRight: 8 }}
-              />
-              Huruf kapital semua
-            </label>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="alignment">Perataan</label>
-              <select
-                id="alignment"
-                value={editingStyle.paragraph.alignment}
-                onChange={(event) =>
-                  updateStyleParagraph(styleEditorKey, "alignment", event.target.value as Alignment)
-                }
-              >
-                <option value="Left">Kiri</option>
-                <option value="Centered">Tengah</option>
-                <option value="Right">Kanan</option>
-                <option value="Justified">Rata kiri-kanan</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="line-spacing">Spasi baris (pt)</label>
-              <input
-                id="line-spacing"
-                type="number"
-                value={editingStyle.paragraph.lineSpacingPt}
-                onChange={(event) =>
-                  updateStyleParagraph(styleEditorKey, "lineSpacingPt", Number(event.target.value))
-                }
-              />
-            </div>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="space-before">Jarak sebelum (pt)</label>
-              <input
-                id="space-before"
-                type="number"
-                value={editingStyle.paragraph.spaceBeforePt}
-                onChange={(event) =>
-                  updateStyleParagraph(styleEditorKey, "spaceBeforePt", Number(event.target.value))
-                }
-              />
-            </div>
-            <div>
-              <label htmlFor="space-after">Jarak sesudah (pt)</label>
-              <input
-                id="space-after"
-                type="number"
-                value={editingStyle.paragraph.spaceAfterPt}
-                onChange={(event) =>
-                  updateStyleParagraph(styleEditorKey, "spaceAfterPt", Number(event.target.value))
-                }
-              />
-            </div>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="first-line-indent">Indent baris pertama (cm)</label>
-              <input
-                id="first-line-indent"
-                type="number"
-                step="0.01"
-                value={editingStyle.paragraph.firstLineIndentCm}
-                onChange={(event) =>
-                  updateStyleParagraph(
-                    styleEditorKey,
-                    "firstLineIndentCm",
-                    Number(event.target.value)
-                  )
-                }
-              />
-            </div>
-            <div>
-              <label htmlFor="left-indent">Indent kiri (cm)</label>
-              <input
-                id="left-indent"
-                type="number"
-                step="0.01"
-                value={editingStyle.paragraph.leftIndentCm}
-                onChange={(event) =>
-                  updateStyleParagraph(styleEditorKey, "leftIndentCm", Number(event.target.value))
-                }
-              />
-            </div>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="right-indent">Indent kanan (cm)</label>
-              <input
-                id="right-indent"
-                type="number"
-                step="0.01"
-                value={editingStyle.paragraph.rightIndentCm}
-                onChange={(event) =>
-                  updateStyleParagraph(styleEditorKey, "rightIndentCm", Number(event.target.value))
-                }
-              />
-            </div>
-            <button
-              onClick={() =>
-                runAction("Sinkronkan preset ke gaya bawaan Word", async () => {
-                  await syncPresetToWordBuiltInStyles(workingPreset);
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Sinkron ke Gaya Word
-            </button>
-          </div>
-
-          <div className="row inline">
-            <div>
-              <label htmlFor="caption-separator-figure">Pemisah gambar</label>
-              <select
-                id="caption-separator-figure"
-                value={workingPreset.captions.figure.separator}
-                onChange={(event) =>
-                  updateCaptionSeparator("Figure", event.target.value as "." | ":" | "-")
-                }
-              >
-                <option value=".">.</option>
-                <option value=":">:</option>
-                <option value="-">-</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="caption-separator-table">Pemisah tabel</label>
-              <select
-                id="caption-separator-table"
-                value={workingPreset.captions.table.separator}
-                onChange={(event) =>
-                  updateCaptionSeparator("Table", event.target.value as "." | ":" | "-")
-                }
-              >
-                <option value=".">.</option>
-                <option value=":">:</option>
-                <option value="-">-</option>
-              </select>
-            </div>
-          </div>
-        </details>
-
-        <details className="card details-card">
-          <summary>Audit</summary>
-          <div className="actions">
-            <button
-              className="primary"
-              onClick={() =>
-                runAction("Audit dokumen", async () => {
-                  const report = await auditDocumentBody(workingPreset.styles.body);
-                  setAuditReport(report);
-                  setNotice({
-                    type: "ok",
-                    text: `Audit selesai. ${report.mismatches.length} ketidaksesuaian dari ${report.totalParagraphs} paragraf.`,
-                  });
-                })
-              }
-              disabled={!isWordReady || busyAction.length > 0}
-            >
-              Jalankan Audit
-            </button>
-          </div>
-
-          {auditReport ? (
-            <div className="audit-list">
-              <div className="audit-item">
-                Paragraf utama diaudit: <strong>{auditReport.totalParagraphs}</strong> | Ketidaksesuaian:
-                <strong> {auditReport.mismatches.length}</strong>
-              </div>
-              {auditReport.mismatches.slice(0, 20).map((item) => (
-                <div key={`${item.index}-${item.textPreview}`} className="audit-item">
-                  #{item.index} - {item.textPreview}
-                  <br />
-                  Masalah: {item.reasons.join(", ")}
-                </div>
-              ))}
-              {auditReport.mismatches.length > 20 ? (
-                <div className="audit-item">Menampilkan 20 ketidaksesuaian pertama.</div>
-              ) : null}
-            </div>
+                Sisipkan Keterangan
+              </button>
+            </>
           ) : null}
-        </details>
 
-        <details className="card details-card">
-          <summary>Diagnostik</summary>
-          <p>Rekam kegagalan tingkat paragraf untuk aksi apply dan heading.</p>
-          <div className="row">
-            <label>
-              <input
-                type="checkbox"
-                checked={diagnosticMode}
-                onChange={(event) => toggleDiagnosticMode(event.target.checked)}
-                style={{ width: "auto", marginRight: 8 }}
-              />
-              Aktifkan mode diagnostik
-            </label>
-          </div>
-          <div className="row">
-            <button
-              onClick={() => {
-                const diagnostics = getLastOfficeDiagnostics();
-                if (!diagnostics) {
-                  setNotice({ type: "info", text: "Belum ada data diagnostik yang direkam." });
-                  return;
-                }
+          {activeTab === "toc" ? (
+            <>
+              <h2>Daftar Isi dan Daftar</h2>
+              <p>Buat lalu perbarui daftar isi, daftar gambar, dan daftar tabel.</p>
 
-                setLastDiagnostics(diagnostics);
-                downloadFile(
-                  "skripsi-fix-diagnostic-report.json",
-                  JSON.stringify(diagnostics, null, 2)
-                );
-                setNotice({ type: "ok", text: "Laporan diagnostik berhasil diekspor." });
-              }}
-              disabled={busyAction.length > 0}
-            >
-              Ekspor JSON Diagnostik
-            </button>
-          </div>
-          {diagnosticMode && lastDiagnostics ? (
-            <div className="audit-list">
-              <div className="audit-item">
-                Aksi terakhir: <strong>{lastDiagnostics.operation}</strong> | Target:
-                <strong> {lastDiagnostics.target}</strong> | Diperbarui:
-                <strong> {lastDiagnostics.updated}</strong> | Gagal:
-                <strong> {lastDiagnostics.failed}</strong>
-              </div>
-              {lastDiagnostics.batchError ? (
-                <div className="audit-item">Error batch: {lastDiagnostics.batchError}</div>
-              ) : null}
-              {lastDiagnostics.failures.slice(0, 10).map((item) => (
-                <div
-                  key={`${item.paragraphIndex}-${item.phase}-${item.statement ?? item.error}`}
-                  className="audit-item"
+              <div className="button-grid">
+                <button
+                  className="primary"
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() => runAction("Sisipkan Daftar Isi", insertTocAtSelection)}
                 >
-                  #{item.paragraphIndex} ({item.phase}) - {item.textPreview}
-                  <br />
-                  Error: {item.error}
-                  {item.errorLocation ? <span> | Lokasi: {item.errorLocation}</span> : null}
-                </div>
-              ))}
-              {lastDiagnostics.failures.length > 10 ? (
-                <div className="audit-item">Menampilkan 10 paragraf gagal pertama.</div>
-              ) : null}
-            </div>
+                  Sisipkan Daftar Isi
+                </button>
+                <button
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() => runAction("Sisipkan Daftar Gambar", insertListOfFiguresAtSelection)}
+                >
+                  Sisipkan Daftar Gambar
+                </button>
+                <button
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() => runAction("Sisipkan Daftar Tabel", insertListOfTablesAtSelection)}
+                >
+                  Sisipkan Daftar Tabel
+                </button>
+                <button
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() =>
+                    runAction("Perbarui Daftar Isi", async () => {
+                      const count = await updateTocFields();
+                      setNotice({ type: "ok", text: `${count} field daftar isi diperbarui.` });
+                    })
+                  }
+                >
+                  Perbarui Daftar Isi
+                </button>
+                <button
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() =>
+                    runAction("Perbarui Daftar Gambar", async () => {
+                      const count = await updateListOfFiguresFields();
+                      setNotice({ type: "ok", text: `${count} field daftar gambar diperbarui.` });
+                    })
+                  }
+                >
+                  Perbarui Daftar Gambar
+                </button>
+                <button
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() =>
+                    runAction("Perbarui Daftar Tabel", async () => {
+                      const count = await updateListOfTablesFields();
+                      setNotice({ type: "ok", text: `${count} field daftar tabel diperbarui.` });
+                    })
+                  }
+                >
+                  Perbarui Daftar Tabel
+                </button>
+                <button
+                  disabled={!isWordReady || !isWordApi15Supported || isBusy}
+                  onClick={() =>
+                    runAction("Perbarui Semua Field", async () => {
+                      const count = await updateAllFields();
+                      setNotice({ type: "ok", text: `${count} field berhasil diperbarui.` });
+                    })
+                  }
+                >
+                  Perbarui Semua Field
+                </button>
+              </div>
+            </>
           ) : null}
-        </details>
-
-        <section className={`status ${notice.type}`}>
-          {busyAction ? `Menjalankan: ${busyAction}...` : notice.text}
         </section>
 
-        <div className="sticky-bar">
-          <button
-            className="primary"
-            onClick={() =>
-              runAction("Terapkan preset gaya", async () => {
-                const count = await applyStylePresetToTarget(
-                  styleKey,
-                  workingPreset.styles[styleKey],
-                  applyTarget
-                );
-                setNotice({
-                  type: "ok",
-                  text: `Penerapan preset gaya selesai. ${count} paragraf diperbarui.`,
-                });
-              })
-            }
-            disabled={!isWordReady || busyAction.length > 0}
-          >
-            Terapkan Gaya
-          </button>
-        </div>
-
-        <p className="footer-note">
-          Field keterangan dan daftar isi memerlukan dukungan WordApi 1.5 pada host Word Anda.
-        </p>
+        <section className={`notice ${notice.type}`}>
+          {isBusy ? `Menjalankan: ${busyAction}...` : notice.text}
+        </section>
       </div>
     </main>
   );

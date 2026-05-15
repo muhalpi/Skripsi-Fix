@@ -3,8 +3,9 @@ import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Skripsi-Fix Word Add-in",
-  description: "Preset formatting, captions, and TOC helpers for Word skripsi documents.",
+  title: "Skripsi-Fix Tab Mode",
+  description:
+    "Word add-in mode tab untuk format multilevel, heading style, caption, dan table of contents.",
 };
 
 export default function RootLayout({
@@ -13,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="id">
       <head>
         <Script id="history-cache" strategy="beforeInteractive">
           {`

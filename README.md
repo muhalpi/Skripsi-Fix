@@ -1,22 +1,14 @@
 # Skripsi-Fix Word Add-in (No Auth, No DB)
 
-Word task-pane add-in for skripsi formatting presets, caption workflows, TOC/list updates, and document audit.
+Word task-pane add-in untuk mempercepat format multilevel, style heading, caption, dan Table of Contents pada dokumen skripsi.
 
 ## Features
 
-- Built-in campus preset pack (protected starter templates)
-- Local preset library (`localStorage` partition-aware)
-- Reset local library back to built-in campus pack
-- Per-document preset save/load (`Office.context.document.settings`)
-- Full style editor for all preset style keys (body, headings, quote, captions)
-- Apply style preset to selection or whole document (with Word built-in style mapping)
-- Chapter-aware autofix (auto-classifies heading/body/caption/quote and applies built-in styles)
-- Sync preset styles into Word built-in styles (Normal, Heading 1/2/3, Quote, Caption)
-- Manual Heading 1/2/3 enforcement
-- Figure/Table caption insertion
-- TOC + list of figures + list of tables field helpers
-- Document audit report for body paragraph mismatches
-- JSON export/import for presets
+- UI baru mode tab (MultiLevel, Heading & Style, Caption, Table of Contents)
+- Chapter-aware autofix untuk merapikan struktur multilevel
+- Terapkan Heading 1/2/3 dan style preset default ke seleksi atau dokumen
+- Sisipkan caption Figure/Table dengan format konsisten
+- Sisipkan dan perbarui TOC, daftar gambar, daftar tabel, serta semua field
 
 ## Stack
 
